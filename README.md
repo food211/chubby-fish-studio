@@ -42,24 +42,22 @@ MIT · v0.2.0 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 
 ## 安装
 
-在 DSH 的 **Plugins** 页面，安装这个包：
+三步，不用命令行：
 
-```
-github:food211/chubby-fish-studio
-```
-
-或者克隆到本地，装**目录**（绝对路径）：
-
-```bash
-git clone https://github.com/food211/chubby-fish-studio.git
-# Plugins → 安装 → 填 <克隆到的绝对路径>
-```
+1. 打开 DSH，进 **Plugins** 页面
+2. 在安装框里填这个地址，确认：
+   ```
+   github:food211/chubby-fish-studio
+   ```
+3. 等它显示安装完成
 
 装好后，**左侧栏底部、⚙ 设置旁边**会出现 **🐟 肥鱼画室**；点它就在右侧栏打开画布，不需要先开一个对话。
 
 到这里事情就成了：**大肥鱼手上多了那张画布**，这个会话里的 agent 立刻能用那四把工具，不用再配置什么、也不用额外授权。第一次打开画布时，跟它说一句"看看我画的"就能试出来。
 
 > 需要 DSH 0.2.x。插件由 Host（工具 + 桥接）和浏览器（面板）两半组成，两者版本必须一致。
+>
+> 开发要改源码的话，仓库就是上面那个地址，构建方式见文末「从源码构建」。
 
 ## 一起画
 
