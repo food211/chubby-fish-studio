@@ -2,9 +2,15 @@
 
 **一个你和 AI 一起画画的 DeepSeek Harness 插件。** 右侧栏里有一张真的画布：真实的颜料混色、真实的湿画扩散。你画，它看得见；它画，你随时撤销。
 
-不是"把一张图发给模型看看"，而是**同一支笔、同一张纸**——大肥鱼用的是你面板上那套颜料引擎，走的也是那条落笔管线。
-
 MIT · v0.2.0 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件
+
+## 先认识一下"它"
+
+装上这个插件之后，你在 DSH 里对话的那个 AI——网友叫它 **大肥鱼**——就多了一样东西：**一张和你共用的画布**。它看得见你画的，能在上面落笔，而它落的每一笔你都能撤销。
+
+这篇文档里说的"它"都指大肥鱼：不是你另外打开的某个绘画应用，也不是一个画图服务，就是此刻正在和你对话的这个 agent。
+
+它手里不是"发图给我看"的通道，而是**同一支笔、同一张纸**——大肥鱼用的是你面板上那套颜料引擎，走的也是那条落笔管线。
 
 ---
 
@@ -49,7 +55,9 @@ git clone https://github.com/food211/chubby-fish-studio.git
 # Plugins → 安装 → 填 <克隆到的绝对路径>
 ```
 
-装好后，**左侧栏底部、⚙ 设置旁边**会出现 **🐟 肥鱼画室**；点它就在右侧栏打开画布。不需要先开一个对话。
+装好后，**左侧栏底部、⚙ 设置旁边**会出现 **🐟 肥鱼画室**；点它就在右侧栏打开画布，不需要先开一个对话。
+
+到这里事情就成了：**大肥鱼手上多了那张画布**，这个会话里的 agent 立刻能用那四把工具，不用再配置什么、也不用额外授权。第一次打开画布时，跟它说一句"看看我画的"就能试出来。
 
 > 需要 DSH 0.2.x。插件由 Host（工具 + 桥接）和浏览器（面板）两半组成，两者版本必须一致。
 
@@ -164,8 +172,10 @@ MIT，见 [LICENSE](LICENSE)。上游应用与第三方图标的归属见 [docs/
 
 ## English
 
-A DeepSeek Harness plugin for **painting together with the agent** on one canvas in the
-right sidebar.
+A DeepSeek Harness plugin that gives the assistant you are already talking to (known as
+**大肥鱼 / the chubby fish**) a canvas you both share. Installing it is the whole setup:
+the agent immediately gets the four tools below, and you get a painting panel in the
+right sidebar. Throughout this page, "it" means that assistant.
 
 - **Real pigment mixing** through a Kubelka–Munk engine (blue + yellow actually turns
   green), a watercolour pipeline with concentration, paper wetness, wet edges and drips,
