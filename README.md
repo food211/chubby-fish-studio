@@ -21,16 +21,18 @@ MIT · v0.2.0 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 
 所以它不会说"建议你把这里加深一点"，而会说"你这块偏灰，我给你在这叠一笔湿的看看"，然后真的画上去。
 
-## 看一眼它画的东西
+## 这三张，是大肥鱼自己画的
 
-下面三张都是在这个画布里、用面板上那台引擎画的（`docs/gallery/`）：
+不是人画完让它点评，也不是它生成图给你——下面三张**全部由大肥鱼自己在画布上落笔完成**：它看画布、定坐标、挑颜料，然后调 `canvas_draw` 一笔一笔画上去，每一笔都留在当时那条可撤销的历史里（你按 `Ctrl+Z` 就能一笔笔退回去）。
+
+全程没有任何扩散模型参与：模型只输出"从 A 点到 B 点、用什么颜色、多大、多湿"，颜料怎么混、边缘怎么渗，都是面板本地的引擎算的。所以它画的东西**和你手画的是同一种东西**。
 
 | | |
 |---|---|
 | ![竹林](docs/gallery/bamboo.webp) | ![风景](docs/gallery/landscape.webp) |
-| 竹子：前方两根用 `flat` 方头笔求"实"，后方用 `watercolor` 求"虚"，同一台引擎两种材质 | 风景：大笔横扫的水洗，山脚那些垂线是 100% 湿度下滴水 pass 真的在往下淌 |
+| **竹林** · 50 笔。前方两根用 `flat` 方头笔求"实"，后方用 `watercolor` 求"虚"；它自己发现细笔在水彩材质下会发虚，于是换了材质 | **风景** · 10 笔。大笔横扫的水洗，山脚那些垂线是 100% 湿度下滴水 pass 真的在往下淌 |
 | ![花](docs/gallery/flower.webp) | |
-| 小花：花瓣根部叠了第二层更深的颜色做厚度 | |
+| **小花** · 22 笔 + 3 笔涂抹。花瓣根部叠了第二层更深的颜色做厚度；花心叠色后读出 `#EBC560`，比它调进去的 `#E8B84A` 偏暖——被下面的粉色带走的 | |
 
 ## 安装
 
@@ -168,10 +170,11 @@ right sidebar.
 - **Real pigment mixing** through a Kubelka–Munk engine (blue + yellow actually turns
   green), a watercolour pipeline with concentration, paper wetness, wet edges and drips,
   and six brush textures including a smudge tool.
-- **The agent paints on your canvas.** `canvas_look` shows it the picture,
-  `canvas_draw` lays strokes with per-stroke colour, size, concentration, wetness and
-  brush material, and `canvas_sample` reads exact pixels. Every agent stroke lands in
-  your undo stack.
+- **The agent paints on your canvas, itself.** The three pieces above were painted by the
+  agent stroke by stroke through `canvas_draw` — `canvas_look` shows it the picture,
+  `canvas_sample` reads exact pixels, and every agent stroke lands in your undo stack.
+  No diffusion model is involved: the model chooses coordinates, pigment and wetness,
+  the local engine decides how the paint actually mixes and bleeds.
 - **Two tempos**: manual ("let the fish look") or realtime, where stroke events queue in
   an inbox and only trigger a look once the stroke count, pixel-change and cooldown
   thresholds are met.
