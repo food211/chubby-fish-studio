@@ -26,7 +26,7 @@
 </tr>
 </table>
 
-<sub>上面四张全部是大肥鱼在画布里自己画的，逐笔落墨，没有扩散模型参与。怎么画的见下文「这三张，是大肥鱼自己画的」。</sub>
+<sub>上面四张画全部是大肥鱼在画布里自己画的，逐笔落墨，没有扩散模型参与（右边那张是当时的对话截图）。怎么画的见下文「这三张，是大肥鱼自己画的」。</sub>
 
 **一个你和 AI 一起画画的 DeepSeek Harness 插件。** 右侧栏里有一张真的画布：真实的颜料混色、真实的湿画扩散。你画，它看得见；它画，你随时撤销。
 
@@ -93,7 +93,7 @@ MIT · v0.2.0 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 | 工具 | 它用来做什么 |
 |---|---|
 | `canvas_look` | 看一眼：画面、画布像素尺寸、当前笔刷/调色板/颜色、撤销位置 |
-| `canvas_draw` | 落笔：多条笔触，每条可单独指定颜色、尺寸、**浓度**、**湿度**、笔刷材质，或用涂抹；也能 `undo` / `redo` / `clear` |
+| `canvas_draw` | 落笔：多条笔触，每条可单独指定颜色、尺寸、**浓度**、**湿度**、笔刷材质，需要收尖时可指定**压感曲线**，或用涂抹；也能 `undo` / `redo` / `clear` |
 | `canvas_sample` | 读准确像素色值（不靠猜） |
 | `canvas_state` | 只读状态，不传图，省 token |
 
@@ -119,15 +119,17 @@ MIT · v0.2.0 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 
 ### 颜料按 Kubelka–Munk 混，不是 RGB 平均
 
-蓝 + 黄出绿，是由颜料本身的光学系数算出来的，不是 `(0,0,255)+(255,255,0)` 那种灰白结果。白色混进红色是变粉，不是变灰；一堆半透明颜料叠在一起会真的越叠越深。引擎用预先烘好的 KM 查找表，落笔时按"当前颜料浓度 + 纸面已有的颜色"实时解算。
+蓝 + 黄在交叠处会转成绿，是由颜料本身的光学系数算出来的，不是 `(0,0,255)+(255,255,0)` 那种灰白结果。刚在画布上量了一次：黄 `#E8B84A` 上叠一笔蓝 `#2A4FD0`，交界处读出 `#688E6F`——绿的。白色混进红色是变粉，不是变灰；半透明颜料叠起来会真的越叠越深。
+
+不过它也会像真颜料一样被盖住：后一笔如果浓度高、把前一笔完全覆盖，你看到的就是后一笔自己的颜色（同一处中心读出 `#396992`）。引擎用预先烘好的 KM 查找表，落笔时按"当前颜料浓度 + 纸面已有的颜色"实时解算。
 
 ### 纸是湿的，颜料会走
 
-- **浓度（1–100%）**：一笔能沉积多少颜料。低于 30% 基本等于"污染"纸面，几乎看不到颜色
+- **浓度（1–100%）**：一笔能沉积多少颜料。拉满才出实色；20% 时几乎只是把纸"污染"了一下，见下面的实测
 - **湿度（0–100%）**：纸有多湿。100% 时边缘会持续向外渗，笔触互相吃色；20% 时边缘收得住，接近实线
 - **湿边 / 滴水**：湿画时会自然形成深色水痕边缘，纸吸饱了还会往下淌
 
-这是实测的（77% 浓度、100% 湿度、水彩笔）：
+下面三行都是在水彩笔上量出来的（前一行：浓度 77% / 湿度 100%；后两行各标注了参数）：
 
 | 画进去的颜色 | 画布上的实际像素 | 说明 |
 |---|---|---|
@@ -145,7 +147,20 @@ MIT · v0.2.0 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 
 ### 落笔是按帧推进的
 
-手画一支笔，是每一帧打几个点、刷一次屏幕，湿纸和滴水这些 pass 每一帧累积一次。插件画的时候也这么做（一条笔触最多约 40 帧，0.5 秒左右画完），所以它在画布上留下的笔触和你手画走同一条管线——而不是"啪"一下糊上去一片。
+手画一支笔，是每一帧打几个点、刷一次屏幕，湿纸和滴水这些 pass 每一帧累积一次。插件画的时候也这么做：一条笔触最多摊到 **16 帧**（约 0.25 秒画完），笔与笔之间留 **200 毫秒**，所以它能一笔一笔落下来，而且每一笔都有独立的历史帧——不是"啪"一下糊上去一片。
+
+### 压感是收尾工具，不是造型工具
+
+这一点踩过坑，所以写进了给 AI 的说明书里：**所有形状先用满压画出来，只有收尖的那几处用压感**（水汽的须、鳍的尖、线的尾）。因为这台引擎里低压力同时也压低颜料沉积——0.8 收到 0.35 还是一个尖，0.95 收到 0.05 就成了一道划痕，整幅画都用压感会又淡又薄。
+
+压感响应是**曲线**，不是线性（`pressureCurve`）：
+
+| 曲线 | 映射 | 手感 |
+|---|---|---|
+| `linear` | `p` | 均匀，略显机械 |
+| `soft` | `p²(3−2p)` | 两端缓入缓出，中间保持得住——细须首选 |
+| `firm` | `p^0.55` | 早段不掉宽，末尾才收——鳍和尾 |
+| `ink` | `p^2.2` | 早早就细，像毛笔出锋——拖尾、落款 |
 
 ## 面板操作
 
@@ -205,7 +220,7 @@ right sidebar. Throughout this page, "it" means that assistant.
 - **Real pigment mixing** through a Kubelka–Munk engine (blue + yellow actually turns
   green), a watercolour pipeline with concentration, paper wetness, wet edges and drips,
   and six brush textures including a smudge tool.
-- **The agent paints on your canvas, itself.** The three pieces above were painted by the
+- **The agent paints on your canvas, itself.** The paintings at the top were made by the
   agent stroke by stroke through `canvas_draw` — `canvas_look` shows it the picture,
   `canvas_sample` reads exact pixels, and every agent stroke lands in your undo stack.
   No diffusion model is involved: the model chooses coordinates, pigment and wetness,
