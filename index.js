@@ -88,6 +88,7 @@ const CANVAS_PROMPT = [
   '- `canvas_draw` paints one or more strokes onto the canvas. It takes canvas pixel coordinates, which match the size `canvas_look` reported. Every stroke lands in the user undo stack, so the user can discard it.',
   'Each stroke takes its own colour, size, strength (how much pigment), wetness (how far it bleeds), brushType, and optionally `usePressure`; the same tool also carries the `smudge` tool and the `undo`/`redo`/`clear` actions.',
   'Pressure is a finishing tool, not a shaping tool. Build every shape first with full-pressure strokes, then taper only the few places that end in a point: a water tendril, a fin tip, the tail of a line. On this engine low pressure also lowers pigment deposit, so a hard taper fades and thins to nothing: 0.8 down to 0.35 still reads as a point, 0.95 down to 0.05 reads as a scratch, and a whole silhouette drawn with tapered strokes comes out pale and weak.',
+  'Pressure responds on a curve (pressureCurve): linear is even and slightly mechanical, soft eases in and out, firm holds the width and tapers late, ink thins early for a brush-like tail. Pick the curve before the numbers; a tendril usually reads best with soft from 0.85 to 0.3.',
   'When the user asks for help with painting, look first, then name one concrete problem at a time and demonstrate with a single short stroke rather than a long description.',
   'The panel may start a turn for you when it decides the painting changed enough. Treat such a turn as an invitation to look and say one useful sentence, not as a prompt to describe the whole canvas again.',
   'If a canvas tool reports that no canvas is open, say so and suggest opening the 肥鱼画室 panel instead of guessing what is on it.',
@@ -649,6 +650,7 @@ export function apply(ctx) {
                   items: { type: 'array', items: { type: 'number' } },
                 },
                 usePressure: { type: 'boolean', description: 'Use the per-point pressures even when the panel pen-pressure switch is off. For tapering a single tail or tendril, not for shaping: low pressure also lowers pigment deposit, so a hard taper fades out.' },
+                pressureCurve: { type: 'string', description: 'Shape of the pressure response: linear (default), soft (smoothstep, gentle at both ends), firm (holds width then tapers late), or ink (thins early, for a brush-like tail).' },
                 color: { type: 'string', description: 'Hex colour such as #3355cc; defaults to the current foreground colour.' },
                 size: { type: 'number', description: 'Brush size in pixels; defaults to the current brush size.' },
                 strength: { type: 'number', description: 'Paint concentration 1-100 for this stroke; defaults to the panel slider. 100 lays solid pigment, 20 is mostly a stain.' },
@@ -687,6 +689,7 @@ export function apply(ctx) {
           strength: stroke?.strength,
           wetness: stroke?.wetness,
           usePressure: stroke?.usePressure,
+          pressureCurve: stroke?.pressureCurve,
           brushType: stroke?.brushType,
         }))
         const id = `draw-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`

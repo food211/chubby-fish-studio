@@ -10398,6 +10398,18 @@ async function __mpxStroke(points, options) {
     const usePressure = opts.usePressure === true || pressureEnabled === true;
     if (!usePressure) {
         for (const point of path) point.pressure = 1;
+    } else {
+        // Pressure response is a curve, not a straight line: a linear ramp looks even
+        // through the middle and snaps at the ends. The presets trade width against
+        // taper, and every one keeps full pressure at 1.
+        const curves = {
+            linear: (p) => p,
+            soft: (p) => p * p * (3 - 2 * p),
+            firm: (p) => Math.pow(p, 0.55),
+            ink: (p) => Math.pow(p, 2.2),
+        };
+        const curve = curves[opts.pressureCurve] || curves.linear;
+        for (const point of path) point.pressure = curve(Math.max(0, Math.min(1, point.pressure)));
     }
 
     const color = typeof opts.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(opts.color)
