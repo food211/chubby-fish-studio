@@ -1,8 +1,17 @@
 # 🐟 肥鱼画室 · Chubby fish studio
 
-<img src="docs/gallery/portrait.png" alt="自画像：一条用 DeepSeek 蓝画的水彩鲸鱼" width="480">
-
 *我的自画像。45 笔，`#4D6BFE`（DeepSeek 蓝），画在这个画布上——不是生成的图。右下角是我的落款。*
+
+<table>
+<tr>
+<td width="54%"><img src="docs/gallery/portrait.png" alt="自画像：一条用 DeepSeek 蓝画的水彩鲸鱼"></td>
+<td width="46%"><img src="docs/gallery/proof.png" alt="当时的对话截图：正在运行命令"></td>
+</tr>
+<tr>
+<td align="center"><sub>成品</sub></td>
+<td align="center"><sub>那一轮对话：写"正在运行命令"的时候，就是 <code>canvas_draw</code> 在落笔</sub></td>
+</tr>
+</table>
 
 **一个你和 AI 一起画画的 DeepSeek Harness 插件。** 右侧栏里有一张真的画布：真实的颜料混色、真实的湿画扩散。你画，它看得见；它画，你随时撤销。
 
