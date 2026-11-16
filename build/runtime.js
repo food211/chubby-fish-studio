@@ -166,6 +166,9 @@ __MPX_VENDOR__
             if (op.type === 'stroke') {
               const result = await controller.api.stroke(op.points || [], op);
               if (result && result.ok) applied += 1;
+              // Let the painter retire the finished frame before the next stroke starts:
+              // pushing two originals in one task occasionally loses a history frame.
+              await new Promise((resolve) => window.setTimeout(resolve, 40));
             } else if (op.type === 'undo') {
               controller.api.undo();
               applied += 1;

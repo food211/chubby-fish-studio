@@ -10430,7 +10430,8 @@ async function __mpxStroke(points, options) {
     // Pace the stamps across animation frames the way a hand stroke arrives: the wet
     // paper, deposit colour and drip passes all accumulate per frame, so painting a
     // whole path inside one frame reads much drier than the same path drawn by hand.
-    // Capped at ~40 frames so a long stroke still lands in well under a second.
+    // Capped at ~16 frames: enough rounds for the wet passes to behave like a hand
+    // stroke, short enough that a user undo cannot arrive in the middle of one.
     let batch = 1;
     let sinceFrame = 0;
     try {
@@ -10439,7 +10440,7 @@ async function __mpxStroke(points, options) {
             // The app's smudge walks the segment itself, stepping by its own spacing.
             // It never records path points, so without this the stroke would not be
             // committed to history (and therefore not undoable).
-            batch = Math.max(1, Math.ceil((path.length - 1) / 40));
+            batch = Math.max(1, Math.ceil((path.length - 1) / 16));
             let previousX = first.x, previousY = first.y;
             addStrokePoint(first.x, first.y);
             for (let index = 1; index < path.length; index += 1) {
@@ -10475,7 +10476,7 @@ async function __mpxStroke(points, options) {
                 }
                 lastX = target.x; lastY = target.y; lastPressure = target.pressure;
             }
-            batch = Math.max(1, Math.ceil(planned.length / 40));
+            batch = Math.max(1, Math.ceil(planned.length / 16));
             let previous = planned[0];
             drawBrush(previous.x, previous.y, color, previous.x, previous.y, previous.pressure);
             addStrokePoint(previous.x, previous.y);
@@ -10841,6 +10842,9 @@ return {
             if (op.type === 'stroke') {
               const result = await controller.api.stroke(op.points || [], op);
               if (result && result.ok) applied += 1;
+              // Let the painter retire the finished frame before the next stroke starts:
+              // pushing two originals in one task occasionally loses a history frame.
+              await new Promise((resolve) => window.setTimeout(resolve, 40));
             } else if (op.type === 'undo') {
               controller.api.undo();
               applied += 1;
