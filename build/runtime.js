@@ -6,7 +6,7 @@ window.__ModuleLoader__.load({
     const h = React.createElement;
     const PKG = 'chubby-fish-studio';
     const TAB_ID = PKG + '/canvas';
-    const TAB_KIND = 'mixbox-canvas';
+    const TAB_KIND = 'chubby-fish-canvas';
 
     const CSS = __MPX_CSS__;
     const MARKUP = __MPX_MARKUP__;
@@ -367,7 +367,7 @@ __MPX_VENDOR__
         '点击 ↶ 撤销 / ↷ 重做',
         '按空格 → 把键盘焦点交还 DSH',
         '点击 ⚙ → 用滑条或数字改画布尺寸',
-        '和 AI 说话 → 它能看见画布，也能示范落笔',
+        '和肥鱼说话 → 它能看见画布，也能示范落笔',
         { icon: true, text: '保存当前画面为 PNG' },
         '水彩笔刷 → 本面板只有 KM 颜料引擎',
       ],
@@ -543,7 +543,7 @@ __MPX_VENDOR__
       const askButton = window.document.createElement('button');
       askButton.type = 'button';
       askButton.className = 'mpx-ask-btn';
-      askButton.textContent = L('Show the agent', '让 AI 看看');
+      askButton.textContent = L('Show the fish', '让肥鱼看看');
       pillHost.appendChild(askButton);
       pillHost.appendChild(pill);
 
@@ -929,7 +929,7 @@ __MPX_VENDOR__
       // The panel's own language switch rewrites the app's copy; match it here so the
       // chrome never disagrees with the toolbars next to it.
       function relabelChrome(lang) {
-        askButton.textContent = withLang(lang, 'Show the agent', '让 AI 看看');
+        askButton.textContent = withLang(lang, 'Show the fish', '让肥鱼看看');
         reloadButton.title = withLang(lang, 'Reload (the painting is saved first)', '刷新（会先保存画面）');
         reloadButton.setAttribute('aria-label', withLang(lang, 'Reload', '刷新'));
       }
@@ -1106,7 +1106,7 @@ __MPX_VENDOR__
             id: 'canvas',
             order: 40,
             title: () => L('Chubby fish studio', '肥鱼画室'),
-            description: () => L('Paint with the agent on one canvas', '和 AI 共用一张画布'),
+            description: () => L('Paint with the fish on one canvas', '和肥鱼共用一张画布'),
           }],
         }), 'mixbox-palette: tab type');
 
