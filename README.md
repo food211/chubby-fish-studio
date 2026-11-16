@@ -13,6 +13,21 @@
 </tr>
 </table>
 
+<table>
+<tr>
+<td width="33%"><img src="docs/gallery/bamboo.webp" alt="竹林"></td>
+<td width="33%"><img src="docs/gallery/landscape.webp" alt="风景"></td>
+<td width="34%"><img src="docs/gallery/flower.webp" alt="小花"></td>
+</tr>
+<tr>
+<td align="center"><sub>竹林 · 50 笔（<code>flat</code> 与 <code>watercolor</code> 混用）</sub></td>
+<td align="center"><sub>风景 · 10 笔（100% 湿度的水洗）</sub></td>
+<td align="center"><sub>小花 · 22 笔 + 3 笔涂抹</sub></td>
+</tr>
+</table>
+
+<sub>上面四张全部是大肥鱼在画布里自己画的，逐笔落墨，没有扩散模型参与。怎么画的见下文「这三张，是大肥鱼自己画的」。</sub>
+
 **一个你和 AI 一起画画的 DeepSeek Harness 插件。** 右侧栏里有一张真的画布：真实的颜料混色、真实的湿画扩散。你画，它看得见；它画，你随时撤销。
 
 MIT · v0.2.0 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件
@@ -42,18 +57,15 @@ MIT · v0.2.0 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 
 ## 这三张，是大肥鱼自己画的
 
-不是人画完让它点评，也不是它生成图给你——下面三张**全部由大肥鱼自己在画布上落笔完成**：它看画布、定坐标、挑颜料，然后调 `canvas_draw` 一笔一笔画上去，每一笔都留在当时那条可撤销的历史里（你按 `Ctrl+Z` 就能一笔笔退回去）。
+不是人画完让它点评，也不是它生成图给你——上面那几张**全部由大肥鱼自己在画布上落笔完成**：它看画布、定坐标、挑颜料，然后调 `canvas_draw` 一笔一笔画上去，每一笔都留在当时那条可撤销的历史里（你按 `Ctrl+Z` 就能一笔笔退回去）。
 
 全程没有任何扩散模型参与：模型只输出"从 A 点到 B 点、用什么颜色、多大、多湿"，颜料怎么混、边缘怎么渗，都是面板本地的引擎算的。所以它画的东西**和你手画的是同一种东西**。
 
-开头那张自画像（45 笔，DeepSeek 蓝 `#4D6BFE`）也是这么画出来的：身体两遍叠色、尾鳍用 `firm` 收尖、鳍尖和水汽用 `soft`、水纹用低浓度的湿笔、落款是 `flat` 方头笔画的方印。除收尖处外全笔满压。
+| | | |
+|---|---|---|
+| **竹林** · 50 笔<br>前方两根用 `flat` 方头笔求"实"，后方用 `watercolor` 求"虚"；它自己发现细笔在水彩材质下会发虚，于是换了材质 | **风景** · 10 笔<br>大笔横扫的水洗，山脚那些垂线是 100% 湿度下滴水 pass 真的在往下淌 | **小花** · 22 笔 + 3 笔涂抹<br>花瓣根部叠了第二层更深的颜色做厚度；花心叠色后读出 `#EBC560`，比它调进去的 `#E8B84A` 偏暖——被下面的粉色带走的 |
 
-| | |
-|---|---|
-| ![竹林](docs/gallery/bamboo.webp) | ![风景](docs/gallery/landscape.webp) |
-| **竹林** · 50 笔。前方两根用 `flat` 方头笔求"实"，后方用 `watercolor` 求"虚"；它自己发现细笔在水彩材质下会发虚，于是换了材质 | **风景** · 10 笔。大笔横扫的水洗，山脚那些垂线是 100% 湿度下滴水 pass 真的在往下淌 |
-| ![花](docs/gallery/flower.webp) | |
-| **小花** · 22 笔 + 3 笔涂抹。花瓣根部叠了第二层更深的颜色做厚度；花心叠色后读出 `#EBC560`，比它调进去的 `#E8B84A` 偏暖——被下面的粉色带走的 | |
+开头那张自画像（45 笔，DeepSeek 蓝 `#4D6BFE`）也是这么画出来的：身体两遍叠色、尾鳍用 `firm` 收尖、鳍尖和水汽用 `soft`、水纹用低浓度的湿笔、落款是 `flat` 方头笔画的方印。除收尖处外全笔满压。
 
 ## 安装
 
