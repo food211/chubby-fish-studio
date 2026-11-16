@@ -687,9 +687,10 @@ export function apply(ctx) {
         }))
         const id = `draw-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
         const finished = new Promise((resolve) => {
-          // Short wait: a paced stroke acks in well under a second, and a client that
-          // predates the ack must not stall the tool.
-          const timer = setTimeout(() => { pendingDone.delete(id); resolve(false) }, 4000)
+          // Generous wait: strokes paint one at a time with a pause between them, so a
+          // full batch legitimately takes seconds. A client without the ack still gives
+          // up early rather than stalling the tool.
+          const timer = setTimeout(() => { pendingDone.delete(id); resolve(false) }, 20000)
           pendingDone.set(id, () => { clearTimeout(timer); pendingDone.delete(id); resolve(true) })
         })
         if (!dispatch(sessionId, [...ops, { type: 'flush-ack', id }])) {

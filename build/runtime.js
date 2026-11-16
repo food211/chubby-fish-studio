@@ -12,6 +12,9 @@ window.__ModuleLoader__.load({
     const MARKUP = __MPX_MARKUP__;
     const WORKER_SRC = __MPX_WORKER__;
     const LUT_B64 = __MPX_LUT__;
+    // Pause between two strokes inside one tool call (ms).
+    const STROKE_GAP_MS = 200;
+
     const SAVE_ICON = __MPX_SAVE_ICON__;
     const PLUGIN_ICON = __MPX_PLUGIN_ICON__;
 
@@ -166,9 +169,10 @@ __MPX_VENDOR__
             if (op.type === 'stroke') {
               const result = await controller.api.stroke(op.points || [], op);
               if (result && result.ok) applied += 1;
-              // Let the painter retire the finished frame before the next stroke starts:
-              // pushing two originals in one task occasionally loses a history frame.
-              await new Promise((resolve) => window.setTimeout(resolve, 40));
+              // Space the strokes so they read as separate marks, and so the painter has
+              // time to retire the finished frame: pushing two frames in one task
+              // occasionally lost one, and back-to-back strokes looked like one smear.
+              await new Promise((resolve) => window.setTimeout(resolve, STROKE_GAP_MS));
             } else if (op.type === 'undo') {
               controller.api.undo();
               applied += 1;
