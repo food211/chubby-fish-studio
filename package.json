@@ -1,0 +1,51 @@
+{
+  "name": "mixbox-palette-dsh",
+  "version": "0.2.0",
+  "type": "module",
+  "description": "A pigment-mixing painting canvas for DeepSeek Harness: the agent can see it, paint on it, and read exact pixels.",
+  "license": "MIT",
+  "author": "food211",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/food211/chubby-fish-studio.git"
+  },
+  "homepage": "https://github.com/food211/chubby-fish-studio#readme",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "painting",
+    "watercolor",
+    "pigment",
+    "mixbox",
+    "canvas"
+  ],
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "docs",
+    "icon.svg",
+    "build"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-sidebar-right",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  }
+}

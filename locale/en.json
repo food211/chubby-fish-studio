@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "Chubby fish studio",
+    "description": "A canvas you share with the agent: it can see your painting, paint on it, and every stroke it makes is undoable.",
+    "detail": "docs/DETAIL.md"
+  }
+}
