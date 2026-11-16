@@ -2,7 +2,7 @@
  * Build `client.js` for the DSH bundle from the Mixbox Palette sources.
  *
  * The app is a set of global scripts (see app.html) that assume a full page,
- * a global `document`, and the UXP bridge. This script folds the KM engine and
+ * a global `document`, and the desktop host bridge. This script folds the KM engine and
  * the UI into one DSH client module:
  *   - drops PS-only modules (ps-bridge, onboarding, updater, announcer, service
  *     worker bootstrap) and the Mixbox engine, keeping the custom KM renderer,
@@ -70,7 +70,7 @@ if (/src="icons\//.test(markup)) problems.push('markup still references a relati
 // ------------------------------------------------------------------ vendor js
 
 const BRIDGE_STUB = `
-// ===== DSH bundle: stand-in for js/ps-bridge.js (no Photoshop host) =====
+// ===== DSH bundle: stand-in for the upstream host bridge (no host here) =====
 const CANVAS_BG = { r: 1, g: 1, b: 1 };
 
 function showAlert(message) {
@@ -125,7 +125,7 @@ const JS_ORDER = [
 ]
 
 // The instructions list is rendered by the client runtime (runtime.js), not through
-// the app's i18n dictionary: half of the upstream lines describe Photoshop, and the
+// the app's i18n dictionary: the upstream lines tie it to a desktop host, and the
 // dictionary pass does not reliably reach those nodes.
 
 let vendor = JS_ORDER.map((rel) => {
@@ -600,7 +600,16 @@ let css = CSS_FILES.map((rel) => `/* ==== ${rel} ==== */\n${read(rel)}`).join('\
 css = css.replace(/^:root\s*\{/m, ':host, .mpx-body {')
 css = css.replace(/^body\s*\{/m, '.mpx-body {')
 css = css.replace(/\bbody:not\(\.app-ready\)/g, '.mpx-body:not(.app-ready)')
-// The app was a page; in a panel every viewport-anchored layer anchors to the panel.
+
+// The upstream app shipped a desktop host bridge. This bundle has no host: drop
+// the import button and the workflow strings outright, and reword the comments that
+// mention the host so the public build never names it. `rectSelectBtn` stays because
+// the app repurposes it as the save-as-PNG button when no host is present.
+markup = markup.replace(/[ \t]*<button id="importBtn"[\s\S]*?<\/button>\r?\n?/, '')
+markup = markup
+  .replace('data-i18n-title="rectSelectTool" title="Select area to PS"', 'title="Save as PNG"')
+
+// The upstream app was a page; in a panel every viewport-anchored layer anchors to the panel.
 css = css.replace(/position:\s*fixed/g, 'position: absolute')
 // CSS-referenced icons (mask-image on the caret, cursor images) are fetched by the
 // browser, so their relative path resolves against the panel's origin and 404s there.
@@ -644,9 +653,8 @@ const OVERRIDES = `
 }
 #appLoader { inset: 0; border-radius: 8px; }
 #engineBtn { display: none !important; }
-#importBtn { display: none !important; }
 .github-link { display: none !important; }
-/* The panel is already a column the host sizes; these two are the Photoshop
+/* The panel is already a column the host sizes; these two are the upstream
    page's own edge-drag affordances and its "focus is captured" hint bar. The size
    control below replaces the drag handles. */
 #focusIndicator { display: none !important; }
@@ -954,7 +962,7 @@ const runtime = readFileSync(join(HERE, 'runtime.js'), 'utf8')
 // The plugin's own icon, so the composer chip shows the same mark as the sidebar.
 const pluginIcon = `data:image/svg+xml;base64,${readFileSync(join(PKG_ROOT, 'icon.svg')).toString('base64')}`
 
-const out = runtime
+let out = runtime
   .replace('__MPX_CSS__', JSON.stringify(css))
   .replace('__MPX_MARKUP__', JSON.stringify(markup))
   .replace('__MPX_WORKER__', JSON.stringify(worker))
@@ -964,6 +972,15 @@ const out = runtime
   .replace('__MPX_VENDOR__', vendor)
   // The vendored i18n table still carries the upstream brand string.
   .replaceAll('🎨 Mixbox Palette', '🐟 肥鱼画室')
+
+// The upstream app shipped a desktop host bridge. This bundle has no host, so
+// its workflow strings are dead weight that would name a product we do not support:
+// drop the entries outright, then reword the remaining comments that mention it.
+out = out
+  .replace(/^[ \t]*"(?:rectSelect|import|transfer|update)[A-Za-z]*"[ \t]*:[ \t]*"[^"\n]*",?[ \t]*\r?\n/gm, '')
+  .replace(/js\/ps-bridge\.js/g, 'the host bridge')
+  .replaceAll('UXP Host', 'the host')
+  .replaceAll('Photoshop', 'the upstream app')
 
 const target = join(PKG_ROOT, 'client.js')
 writeFileSync(target, out, 'utf8')

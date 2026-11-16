@@ -357,7 +357,7 @@ __MPX_VENDOR__
     }
 
     // The instructions list is this panel's own copy: the app's i18n pass does not
-    // reliably fill those nodes, and half of the upstream lines describe Photoshop.
+    // reliably fill those nodes, and the upstream lines tie some of them to a desktop host.
     const INSTRUCTION_COPY = {
       zh: [
         '左键/右键点击颜料 → 选择为前景色/背景色',

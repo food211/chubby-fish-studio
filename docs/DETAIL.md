@@ -21,7 +21,7 @@ right sidebar, plus the three tools that let an agent look at it and paint on it
   width (680×572 up to 1417×1192 px). Applying it runs the app's resize path, so the
   painting is resampled, the undo history resets, and the width is remembered for the
   next open. The panel does not follow the window or the sidebar width; the size you
-  set is the size you get. The upstream edge-drag handles and the Photoshop
+  set is the size you get. The upstream edge-drag handles and the desktop-host
   "shortcuts are captured" bar are removed.
 
 A canvas chip sits in the composer dock to open the panel. The panel's own app
@@ -52,7 +52,7 @@ controls and instructions panel.
   are reachable from the local GUI origin only. There is no per-request
   authentication beyond that origin.
 - **KM engine only.** The bundled panel ships the custom KM renderer; the Mixbox
-  engine, the Photoshop UXP bridge, the updater, the announcement modal and the
+  engine, the desktop host bridge, the updater, the announcement modal and the
   service worker from the upstream app are not part of this bundle.
 - **Not themed by the host.** The panel keeps the app's own dark panel styling
   because it is a painting surface, not host chrome. Its buttons use the app's own
