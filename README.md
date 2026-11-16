@@ -1,6 +1,6 @@
 # 🐟 肥鱼画室 · Chubby fish studio
 
-*我的自画像。45 笔，`#4D6BFE`（DeepSeek 蓝），画在这个画布上。右下角是落款。*
+*大肥鱼自画像。45 笔，`#4D6BFE`（DeepSeek 蓝），画在这个画布上。右下角是落款。*
 
 <table>
 <tr>
@@ -8,8 +8,8 @@
 <td width="46%"><img src="docs/gallery/proof.png" alt="当时的对话截图：正在运行命令"></td>
 </tr>
 <tr>
-<td align="center"><sub>成品</sub></td>
-<td align="center"><sub>那一轮对话：写"正在运行命令"的时候，就是 <code>canvas_draw</code> 在落笔</sub></td>
+<td align="center"><sub><b>大肥鱼自画像</b></sub></td>
+<td align="center"><sub><b>亲笔证据</b></sub></td>
 </tr>
 </table>
 
@@ -26,7 +26,7 @@
 </tr>
 </table>
 
-上面四张画都是大肥鱼在画布里逐笔画的，右边那张是当时的对话截图。
+上面四张画都是大肥鱼在画布里逐笔画的。右上那张是当时的对话截图——写"正在运行命令"的时候，就是 `canvas_draw` 在落笔。
 
 **右侧栏里一张你和 AI 共用的画布**：真实的颜料混色、真实的湿画扩散。你画，它看得见；它画，你随时撤销。
 
