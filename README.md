@@ -1,5 +1,9 @@
 # 🐟 肥鱼画室 · Chubby fish studio
 
+<img src="docs/gallery/portrait.png" alt="自画像：一条用 DeepSeek 蓝画的水彩鲸鱼" width="480">
+
+*我的自画像。49 笔，`#4D6BFE`，画在这个画布上——不是生成的图。*
+
 **一个你和 AI 一起画画的 DeepSeek Harness 插件。** 右侧栏里有一张真的画布：真实的颜料混色、真实的湿画扩散。你画，它看得见；它画，你随时撤销。
 
 MIT · v0.2.0 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件
@@ -32,6 +36,8 @@ MIT · v0.2.0 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 不是人画完让它点评，也不是它生成图给你——下面三张**全部由大肥鱼自己在画布上落笔完成**：它看画布、定坐标、挑颜料，然后调 `canvas_draw` 一笔一笔画上去，每一笔都留在当时那条可撤销的历史里（你按 `Ctrl+Z` 就能一笔笔退回去）。
 
 全程没有任何扩散模型参与：模型只输出"从 A 点到 B 点、用什么颜色、多大、多湿"，颜料怎么混、边缘怎么渗，都是面板本地的引擎算的。所以它画的东西**和你手画的是同一种东西**。
+
+开头那张自画像（49 笔，DeepSeek 蓝 `#4D6BFE`）也是这么画出来的。
 
 | | |
 |---|---|
