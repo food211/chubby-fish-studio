@@ -643,9 +643,10 @@ export function apply(ctx) {
               properties: {
                 points: {
                   type: 'array',
-                  description: 'Path points; each is [x, y] or [x, y, pressure] with pressure 0-1. Pressure only takes effect when the panel pen-pressure switch is on.',
+                  description: 'Path points; each is [x, y] or [x, y, pressure] with pressure 0-1. Pressure applies when the panel pen-pressure switch is on, or when the stroke sets usePressure.',
                   items: { type: 'array', items: { type: 'number' } },
                 },
+                usePressure: { type: 'boolean', description: 'Use the per-point pressures even when the panel pen-pressure switch is off. Tapers the stroke by the pressure values.' },
                 color: { type: 'string', description: 'Hex colour such as #3355cc; defaults to the current foreground colour.' },
                 size: { type: 'number', description: 'Brush size in pixels; defaults to the current brush size.' },
                 strength: { type: 'number', description: 'Paint concentration 1-100 for this stroke; defaults to the panel slider. 100 lays solid pigment, 20 is mostly a stain.' },
@@ -683,6 +684,7 @@ export function apply(ctx) {
           size: stroke?.size,
           strength: stroke?.strength,
           wetness: stroke?.wetness,
+          usePressure: stroke?.usePressure,
           brushType: stroke?.brushType,
         }))
         const id = `draw-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
