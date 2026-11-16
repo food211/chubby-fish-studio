@@ -75,7 +75,7 @@ const MAX_BODY_BYTES = 16 * 1024 * 1024
 const SNAPSHOT_TTL_MS = 30 * 60 * 1000
 
 /** Loader identity for this plugin row. */
-export const name = 'mixbox-palette-dsh'
+export const name = 'chubby-fish-studio'
 
 /** The HTTP carrier hosts the canvas bridge; the rest is injected optionally. */
 export const inject = ['webServer']

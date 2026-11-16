@@ -1,5 +1,5 @@
 # Canvas bundle: one Host row carries the canvas bridge and its agent tools,
 # the client half arrives through `dsh.client` in package.json.
 - insert:
-    - id: mixbox-palette-dsh
-      name: 'mixbox-palette-dsh'
+    - id: chubby-fish-studio
+      name: 'chubby-fish-studio'
