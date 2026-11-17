@@ -32,6 +32,8 @@
 
 MIT · v0.8.8 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件
 
+> 用下来有问题、想许愿新功能，或者想看看别人画了什么：[在 Discussions 的插件帖里聊](https://github.com/deepseek-ai/deepseek-harness/discussions/13604)。
+
 ## 它是什么
 
 装好之后，你在 DSH 里对话的那个 AI——网友叫它 **大肥鱼**——多了一张和你共用的画布。下文里的"它"就是这个 agent。
