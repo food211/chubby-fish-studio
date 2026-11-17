@@ -10702,8 +10702,177 @@ async function __mpxResizeTo(width) {
     }
 }
 
+// --------------------------- stroke recording (bypass capture) ---------------------------
+
+// Record the canvas while it is being painted, without touching the history stack.
+//
+// The undo stack only keeps ~50 raster frames and evicts the oldest, so a replay
+// rebuilt from it starts mid-painting. This path never reads the stack: it pulls
+// frames from a canvas stream on scheduler ticks that have real paint work behind
+// them, and pauses the encoder while the picture stands still, so idle time costs
+// neither frames nor bitrate. Frames stay on the GPU path - MediaRecorder encodes
+// them in the browser, nothing is copied per frame to JS.
+const __mpxRecorder = (function () {
+    const TASK_NAME = 'dsh-recorder';
+    const IDLE_MS = 700;
+    const BITRATE = 3000000;
+    const MIMES = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+
+    let phase = 'idle';          // idle | recording | paused | finishing
+    let stream = null;
+    let track = null;
+    let encoder = null;
+    let mime = '';
+    let chunks = [];
+    let startedAt = 0;
+    let lastPaintAt = 0;
+    let pausedSince = 0;
+    let pausedMs = 0;
+    let frameCount = 0;
+    let resolveStop = null;
+
+    function supported() {
+        return !!(window.MediaRecorder && typeof mixCanvas.captureStream === 'function');
+    }
+
+    function pickMime() {
+        for (const type of MIMES) {
+            try { if (MediaRecorder.isTypeSupported(type)) return type } catch (_error) {}
+        }
+        return '';
+    }
+
+    // The app merges every continuous loop into one scheduler; a tick where no other
+    // task is active means the picture is not changing.
+    function paintingNow() {
+        try {
+            if (typeof FrameScheduler === 'undefined' || !FrameScheduler._list) return true;
+            const tasks = FrameScheduler._list();
+            for (const task of tasks) {
+                if (task.active && task.name !== TASK_NAME) return true;
+            }
+            return false;
+        } catch (_error) {
+            return true;
+        }
+    }
+
+    function release() {
+        try {
+            if (typeof FrameScheduler !== 'undefined' && FrameScheduler.has(TASK_NAME)) {
+                FrameScheduler.unregister(TASK_NAME);
+            }
+        } catch (_error) {}
+        try { if (track) track.stop() } catch (_error) {}
+        try { if (stream) stream.getTracks().forEach((t) => t.stop()) } catch (_error) {}
+        track = null;
+        stream = null;
+        encoder = null;
+    }
+
+    function tick() {
+        if (phase !== 'recording' && phase !== 'paused') return;
+        if (!paintingNow()) {
+            if (phase === 'recording' && performance.now() - lastPaintAt >= IDLE_MS) {
+                try { encoder.pause() } catch (_error) {}
+                phase = 'paused';
+                pausedSince = performance.now();
+            }
+            return;
+        }
+        if (phase === 'paused') {
+            try { encoder.resume() } catch (_error) {}
+            pausedMs += performance.now() - pausedSince;
+            phase = 'recording';
+        }
+        lastPaintAt = performance.now();
+        try {
+            track.requestFrame();
+            frameCount += 1;
+        } catch (_error) {}
+    }
+
+    function start() {
+        if (phase !== 'idle') return { ok: false, reason: 'busy', phase: phase };
+        if (!supported()) return { ok: false, reason: 'unsupported' };
+        try {
+            mime = pickMime();
+            stream = mixCanvas.captureStream(0);
+            track = stream.getVideoTracks()[0];
+            if (!track) {
+                release();
+                return { ok: false, reason: 'no-track' };
+            }
+            const options = { videoBitsPerSecond: BITRATE };
+            if (mime) options.mimeType = mime;
+            encoder = new MediaRecorder(stream, options);
+            chunks = [];
+            frameCount = 0;
+            pausedMs = 0;
+            startedAt = performance.now();
+            lastPaintAt = startedAt;
+            encoder.ondataavailable = (event) => {
+                if (event.data && event.data.size) chunks.push(event.data);
+            };
+            encoder.onstop = () => {
+                const type = mime || 'video/webm';
+                const blob = new Blob(chunks, { type: type });
+                const result = {
+                    ok: true,
+                    blob: blob,
+                    mime: type,
+                    bytes: blob.size,
+                    frames: frameCount,
+                    durationMs: Math.max(0, performance.now() - startedAt - pausedMs),
+                };
+                chunks = [];
+                phase = 'idle';
+                release();
+                const resolve = resolveStop;
+                resolveStop = null;
+                if (resolve) resolve(result);
+            };
+            encoder.start(1000);
+            phase = 'recording';
+            FrameScheduler.register(TASK_NAME, tick, 90);
+            return { ok: true, mime: mime || 'video/webm' };
+        } catch (error) {
+            release();
+            phase = 'idle';
+            return { ok: false, reason: 'start-failed', message: String(error && error.message || error) };
+        }
+    }
+
+    function stop() {
+        if (phase === 'idle' || phase === 'finishing') return Promise.resolve({ ok: false, reason: 'idle' });
+        phase = 'finishing';
+        return new Promise((resolve) => {
+            resolveStop = resolve;
+            try { encoder.requestData() } catch (_error) {}
+            try {
+                encoder.stop();
+            } catch (_error) {
+                resolve({ ok: false, reason: 'stop-failed' });
+            }
+        });
+    }
+
+    function state() {
+        return {
+            phase: phase,
+            supported: supported(),
+            mime: mime || 'video/webm',
+            frames: frameCount,
+            elapsedMs: phase === 'idle' ? 0 : Math.max(0, performance.now() - startedAt - pausedMs),
+        };
+    }
+
+    return { start: start, stop: stop, state: state };
+})();
+
 return {
     initApp,
+    recorder: __mpxRecorder,
     el: mixCanvas,
     snapshot: __mpxSnapshot,
     state: __mpxState,
@@ -11314,6 +11483,16 @@ return {
       askButton.className = 'mpx-ask-btn';
       askButton.textContent = L('Show the fish', '让肥鱼看看');
       pillHost.appendChild(askButton);
+
+      // Bypass recorder: captures the canvas while it is being painted, independent of
+      // the undo stack (which keeps only ~50 frames and would replay a fragment).
+      const recordButton = window.document.createElement('button');
+      recordButton.type = 'button';
+      recordButton.className = 'mpx-ask-btn';
+      recordButton.setAttribute('data-mpx-record', '');
+      recordButton.textContent = L('● Record', '● 录制');
+      recordButton.title = L('Record the drawing as a webm video', '把绘制过程录成 webm 视频');
+      pillHost.appendChild(recordButton);
       pillHost.appendChild(pill);
 
       const askPop = window.document.createElement('div');
@@ -11367,12 +11546,12 @@ return {
       // Overlay a sibling of the scrolling body so it covers the panel viewport,
       // not the taller scroll content.
       shadow.appendChild(modal);
-      return { button, reloadButton, reloadMenu, pill, modal, askButton, askPop };
+      return { button, reloadButton, reloadMenu, pill, modal, askButton, askPop, recordButton };
     }
 
     function wireSettings(controller) {
       const { bodyEl, shadow, api } = controller;
-      const { button, reloadButton, reloadMenu, pill, modal, askButton, askPop } = controller.settingsUi;
+      const { button, reloadButton, reloadMenu, pill, modal, askButton, askPop, recordButton } = controller.settingsUi;
 
       const label = button.querySelector('[data-mpx-label]');
       const modeLabel = pill.querySelector('[data-mpx-mode-label]');
@@ -11702,6 +11881,66 @@ return {
         reloadButton.title = withLang(lang, 'Reload (the painting is saved first)', '刷新（会先保存画面）');
         reloadButton.setAttribute('aria-label', withLang(lang, 'Reload', '刷新'));
       }
+
+      // ---- bypass recording: the panel's own button, and the surface the agent uses
+      const recorder = api.recorder;
+      let recordTimer = 0;
+
+      function recordLabel() {
+        const state = recorder.state();
+        if (state.phase === 'idle') return L('● Record', '● 录制');
+        if (state.phase === 'finishing') return L('… Saving', '… 生成中');
+        const seconds = Math.round(state.elapsedMs / 1000);
+        const head = state.phase === 'paused' ? L('■ Wait', '■ 等笔') : L('■ Stop', '■ 停止');
+        return head + ' ' + seconds + 's';
+      }
+
+      function refreshRecord() {
+        const phase = recorder.state().phase;
+        recordButton.textContent = recordLabel();
+        recordButton.style.color = phase === 'idle' ? '' : '#e0563f';
+      }
+
+      function saveRecording(blob) {
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const url = window.URL.createObjectURL(blob);
+        const link = window.document.createElement('a');
+        link.href = url;
+        link.download = 'chubby-fish-' + stamp + '.webm';
+        window.document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => { try { window.URL.revokeObjectURL(url) } catch (_error) {} }, 60000);
+      }
+
+      recordButton.addEventListener('click', async () => {
+        if (recorder.state().phase === 'idle') {
+          const started = recorder.start();
+          if (!started.ok) {
+            recordButton.textContent = started.reason === 'unsupported'
+              ? L('No recorder here', '这里不支持录制')
+              : L('Cannot record', '无法录制');
+            recordButton.style.color = '#e0563f';
+            window.setTimeout(refreshRecord, 2500);
+            return;
+          }
+          window.clearInterval(recordTimer);
+          recordTimer = window.setInterval(refreshRecord, 500);
+          refreshRecord();
+          return;
+        }
+        window.clearInterval(recordTimer);
+        recordTimer = 0;
+        recordButton.textContent = L('… Saving', '… 生成中');
+        const result = await recorder.stop();
+        refreshRecord();
+        if (result && result.ok && result.blob && result.bytes > 0) {
+          saveRecording(result.blob);
+          panelNotice(bodyEl, L(
+            'Saved ' + Math.round(result.bytes / 1024) + ' KB, ' + result.frames + ' frames',
+            '已保存 ' + Math.round(result.bytes / 1024) + ' KB，' + result.frames + ' 帧'));
+        }
+      });
 
       return { refreshLabel, refreshMode, relabelChrome };
     }

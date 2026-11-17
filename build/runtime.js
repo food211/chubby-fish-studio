@@ -606,6 +606,16 @@ __MPX_VENDOR__
       askButton.className = 'mpx-ask-btn';
       askButton.textContent = L('Show the fish', '让肥鱼看看');
       pillHost.appendChild(askButton);
+
+      // Bypass recorder: captures the canvas while it is being painted, independent of
+      // the undo stack (which keeps only ~50 frames and would replay a fragment).
+      const recordButton = window.document.createElement('button');
+      recordButton.type = 'button';
+      recordButton.className = 'mpx-ask-btn';
+      recordButton.setAttribute('data-mpx-record', '');
+      recordButton.textContent = L('● Record', '● 录制');
+      recordButton.title = L('Record the drawing as a webm video', '把绘制过程录成 webm 视频');
+      pillHost.appendChild(recordButton);
       pillHost.appendChild(pill);
 
       const askPop = window.document.createElement('div');
@@ -659,12 +669,12 @@ __MPX_VENDOR__
       // Overlay a sibling of the scrolling body so it covers the panel viewport,
       // not the taller scroll content.
       shadow.appendChild(modal);
-      return { button, reloadButton, reloadMenu, pill, modal, askButton, askPop };
+      return { button, reloadButton, reloadMenu, pill, modal, askButton, askPop, recordButton };
     }
 
     function wireSettings(controller) {
       const { bodyEl, shadow, api } = controller;
-      const { button, reloadButton, reloadMenu, pill, modal, askButton, askPop } = controller.settingsUi;
+      const { button, reloadButton, reloadMenu, pill, modal, askButton, askPop, recordButton } = controller.settingsUi;
 
       const label = button.querySelector('[data-mpx-label]');
       const modeLabel = pill.querySelector('[data-mpx-mode-label]');
@@ -994,6 +1004,66 @@ __MPX_VENDOR__
         reloadButton.title = withLang(lang, 'Reload (the painting is saved first)', '刷新（会先保存画面）');
         reloadButton.setAttribute('aria-label', withLang(lang, 'Reload', '刷新'));
       }
+
+      // ---- bypass recording: the panel's own button, and the surface the agent uses
+      const recorder = api.recorder;
+      let recordTimer = 0;
+
+      function recordLabel() {
+        const state = recorder.state();
+        if (state.phase === 'idle') return L('● Record', '● 录制');
+        if (state.phase === 'finishing') return L('… Saving', '… 生成中');
+        const seconds = Math.round(state.elapsedMs / 1000);
+        const head = state.phase === 'paused' ? L('■ Wait', '■ 等笔') : L('■ Stop', '■ 停止');
+        return head + ' ' + seconds + 's';
+      }
+
+      function refreshRecord() {
+        const phase = recorder.state().phase;
+        recordButton.textContent = recordLabel();
+        recordButton.style.color = phase === 'idle' ? '' : '#e0563f';
+      }
+
+      function saveRecording(blob) {
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const url = window.URL.createObjectURL(blob);
+        const link = window.document.createElement('a');
+        link.href = url;
+        link.download = 'chubby-fish-' + stamp + '.webm';
+        window.document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => { try { window.URL.revokeObjectURL(url) } catch (_error) {} }, 60000);
+      }
+
+      recordButton.addEventListener('click', async () => {
+        if (recorder.state().phase === 'idle') {
+          const started = recorder.start();
+          if (!started.ok) {
+            recordButton.textContent = started.reason === 'unsupported'
+              ? L('No recorder here', '这里不支持录制')
+              : L('Cannot record', '无法录制');
+            recordButton.style.color = '#e0563f';
+            window.setTimeout(refreshRecord, 2500);
+            return;
+          }
+          window.clearInterval(recordTimer);
+          recordTimer = window.setInterval(refreshRecord, 500);
+          refreshRecord();
+          return;
+        }
+        window.clearInterval(recordTimer);
+        recordTimer = 0;
+        recordButton.textContent = L('… Saving', '… 生成中');
+        const result = await recorder.stop();
+        refreshRecord();
+        if (result && result.ok && result.blob && result.bytes > 0) {
+          saveRecording(result.blob);
+          panelNotice(bodyEl, L(
+            'Saved ' + Math.round(result.bytes / 1024) + ' KB, ' + result.frames + ' frames',
+            '已保存 ' + Math.round(result.bytes / 1024) + ' KB，' + result.frames + ' 帧'));
+        }
+      });
 
       return { refreshLabel, refreshMode, relabelChrome };
     }
