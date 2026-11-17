@@ -4,7 +4,7 @@
 
 <table>
 <tr>
-<td width="54%"><img src="docs/gallery/portrait.png" alt="自画像：蓝发鲸尾的小女仆，一笔一笔画出来的"></td>
+<td width="54%"><img src="docs/gallery/portrait.webp" alt="自画像：蓝发鲸尾的小女仆，一笔一笔画出来的"></td>
 <td width="46%"><img src="docs/gallery/proof.png" alt="当时的对话截图：正在运行命令"></td>
 </tr>
 <tr>
