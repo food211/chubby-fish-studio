@@ -683,6 +683,34 @@ const __mpxRecorder = (function () {
     // a scheduler task alive, so the surface pokes this directly; otherwise a fast stroke
     // would fall between ticks and the encoder would never be handed a frame.
     let lastActivityAt = 0;
+    // Duplicate frames are pure waste: a tick where the picture is byte-identical adds
+    // nothing but bitrate. A 48x48 signature decides whether to hand the encoder a frame.
+    const SIG_SIZE = 48;
+    let sigCanvas = null;
+    let sigCtx = null;
+    let lastSig = -1;
+    let skippedFrames = 0;
+
+    function frameSignature() {
+        try {
+            if (!sigCanvas) {
+                sigCanvas = window.document.createElement('canvas');
+                sigCanvas.width = SIG_SIZE;
+                sigCanvas.height = SIG_SIZE;
+                sigCtx = sigCanvas.getContext('2d', { willReadFrequently: true });
+            }
+            sigCtx.drawImage(mixCanvas, 0, 0, SIG_SIZE, SIG_SIZE);
+            const data = sigCtx.getImageData(0, 0, SIG_SIZE, SIG_SIZE).data;
+            let hash = 2166136261;
+            for (let i = 0; i < data.length; i += 12) {
+                hash ^= data[i] + (data[i + 1] << 8) + (data[i + 2] << 16);
+                hash = Math.imul(hash, 16777619);
+            }
+            return hash >>> 0;
+        } catch (_error) {
+            return 0; // no signature available: keep capturing rather than stall
+        }
+    }
 
     function supported() {
         return !!(window.MediaRecorder && typeof mixCanvas.captureStream === 'function');
@@ -744,6 +772,13 @@ const __mpxRecorder = (function () {
         }
         lastPaintAt = now;
         lastActivityAt = now;
+        const sig = frameSignature();
+        if (sig !== 0 && sig === lastSig) {
+            // Nothing moved on the canvas: the last frame already covers this moment.
+            skippedFrames += 1;
+            return;
+        }
+        lastSig = sig;
         try {
             track.requestFrame();
             frameCount += 1;
@@ -772,6 +807,8 @@ const __mpxRecorder = (function () {
             chunks = [];
             frameCount = 0;
             pausedMs = 0;
+            lastSig = -1;
+            skippedFrames = 0;
             startedAt = performance.now();
             lastPaintAt = startedAt;
             lastActivityAt = startedAt;
@@ -835,6 +872,7 @@ const __mpxRecorder = (function () {
             supported: supported(),
             mime: mime || 'video/webm',
             frames: frameCount,
+            skipped: skippedFrames,
             elapsedMs: phase === 'idle' ? 0 : Math.max(0, performance.now() - startedAt - pausedMs),
         };
     }
