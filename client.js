@@ -11205,7 +11205,12 @@ return {
               await fetch('/mpx/canvas/record', {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
-                body: JSON.stringify(Object.assign({ sessionId: controller.sessionId, id: op.id }, reply)),
+                body: JSON.stringify(Object.assign({
+                  sessionId: controller.sessionId,
+                  id: op.id,
+                  // The folder is a panel setting; the host only learns it with the clip.
+                  recordDir: (controller.settings && controller.settings.recordDir) || '',
+                }, reply)),
               }).catch(() => {});
               if (reply && reply.ok && op.action === 'stop') {
                 panelNotice(controller.bodyEl, L('The agent saved the recording', '模型已保存这次录制'));
@@ -11350,7 +11355,7 @@ return {
     // ------------------------------------------- settings, look mode, and inbox
 
     const SETTINGS_KEY = 'mpx:settings:v1';
-    const DEFAULT_SETTINGS = { mode: 'manual', minStrokes: 3, minPixelChange: 6, cooldownSec: 45 };
+    const DEFAULT_SETTINGS = { mode: 'manual', minStrokes: 3, minPixelChange: 6, cooldownSec: 45, recordDir: '' };
 
     function clampInt(value, min, max, fallback) {
       const number = Number(value);
@@ -11366,6 +11371,7 @@ return {
         merged.minStrokes = clampInt(merged.minStrokes, 1, 50, DEFAULT_SETTINGS.minStrokes);
         merged.minPixelChange = clampInt(merged.minPixelChange, 0, 100, DEFAULT_SETTINGS.minPixelChange);
         merged.cooldownSec = clampInt(merged.cooldownSec, 0, 600, DEFAULT_SETTINGS.cooldownSec);
+        merged.recordDir = typeof merged.recordDir === 'string' ? merged.recordDir.trim() : '';
         return merged;
       } catch (_error) {
         return Object.assign({}, DEFAULT_SETTINGS);
@@ -11606,6 +11612,11 @@ return {
         '</div>',
         `<p class="mpx-hint">${L('Canvas', '画布')} <b data-mpx-px></b> px</p>`,
         '<div class="mpx-divider"></div>',
+        `<p class="mpx-section">${L('Recording folder', '录制保存目录')}</p>`,
+        `<div class="mpx-field"><label>${L('Save to', '保存到')}</label>`
+          + '<input type="text" data-mpx-record-dir spellcheck="false" autocomplete="off"></div>',
+        `<p class="mpx-hint">${L('An absolute path. Leave it empty for the harness default; the folder is created if it is missing.', '填绝对路径；留空则用默认目录（harness home 下的 canvas-recordings）。目录不存在会自动创建。')}</p>`,
+        '<div class="mpx-divider"></div>',
         `<p class="mpx-section">${L('When the agent looks', '模型何时看画')}</p>`,
         `<div class="mpx-field"><label>${L('Mode', '模式')}</label><div class="mpx-seg">`
           + `<button type="button" data-mpx-mode="manual">${L('Manual', '手动')}</button>`
@@ -11646,6 +11657,7 @@ return {
       const strokesInput = modal.querySelector('[data-mpx-strokes]');
       const changeInput = modal.querySelector('[data-mpx-change]');
       const cooldownInput = modal.querySelector('[data-mpx-cooldown]');
+      const recordDirInput = modal.querySelector('[data-mpx-record-dir]');
       const applyBtn = modal.querySelector('[data-mpx-apply]');
       const cancelBtn = modal.querySelector('[data-mpx-cancel]');
 
@@ -11764,6 +11776,7 @@ return {
         strokesInput.value = String(settings.minStrokes);
         changeInput.value = String(settings.minPixelChange);
         cooldownInput.value = String(settings.cooldownSec);
+        recordDirInput.value = settings.recordDir || '';
         draftMode = settings.mode;
         refreshDraft();
         refreshMode();
@@ -11849,6 +11862,7 @@ return {
           minStrokes: clampInt(strokesInput.value, 1, 50, DEFAULT_SETTINGS.minStrokes),
           minPixelChange: clampInt(changeInput.value, 0, 100, DEFAULT_SETTINGS.minPixelChange),
           cooldownSec: clampInt(cooldownInput.value, 0, 600, DEFAULT_SETTINGS.cooldownSec),
+          recordDir: String(recordDirInput.value || '').trim(),
         };
         controller.settings = next;
         saveSettings(next);

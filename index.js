@@ -23,8 +23,9 @@ const LAST_PATH = '/mpx/canvas/last'
 const DEBUG_PATH = '/mpx/canvas/debug'
 
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, readdir, stat, unlink, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { spawn } from 'node:child_process'
+import { mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises'
+import { join, isAbsolute } from 'node:path'
 
 // Retention for the on-disk snapshots. One file per session, overwritten in place, so
 // a painting never grows; only the number of sessions can grow, and that is capped.
@@ -267,6 +268,86 @@ function readBody(req, limit = MAX_BODY_BYTES) {
     req.on('end', () => resolve(Buffer.concat(chunks)))
     req.on('error', reject)
   })
+}
+
+/**
+ * ffmpeg, if this host happens to have it.
+ *
+ * Bundling it would put tens of megabytes inside a 700 KB plugin, so it stays optional:
+ * when it is on PATH a finished recording gets a duration index and an mp4 copy; when it
+ * is absent the plain webm is still a valid, playable file.
+ * @returns {Promise<boolean>} whether ffmpeg answered.
+ */
+let ffmpegProbe
+function ffmpegAvailable() {
+  if (!ffmpegProbe) {
+    ffmpegProbe = new Promise((resolve) => {
+      let settled = false
+      const finish = (value) => { if (!settled) { settled = true; resolve(value) } }
+      try {
+        const child = spawn('ffmpeg', ['-version'], { stdio: 'ignore', windowsHide: true })
+        const timer = setTimeout(() => { try { child.kill() } catch { /* gone */ } finish(false) }, 4000)
+        child.on('error', () => { clearTimeout(timer); finish(false) })
+        child.on('exit', (code) => { clearTimeout(timer); finish(code === 0) })
+      } catch {
+        finish(false)
+      }
+    })
+  }
+  return ffmpegProbe
+}
+
+/**
+ * Run one short ffmpeg pass over a recording.
+ * @param {string[]} args - ffmpeg arguments.
+ * @returns {Promise<boolean>} whether it exited cleanly inside the timeout.
+ */
+function runFfmpeg(args) {
+  return new Promise((resolve) => {
+    let settled = false
+    const finish = (value) => { if (!settled) { settled = true; resolve(value) } }
+    try {
+      const child = spawn('ffmpeg', args, { stdio: 'ignore', windowsHide: true })
+      const timer = setTimeout(() => { try { child.kill() } catch { /* gone */ } finish(false) }, 120000)
+      child.on('error', () => { clearTimeout(timer); finish(false) })
+      child.on('exit', (code) => { clearTimeout(timer); finish(code === 0) })
+    } catch {
+      finish(false)
+    }
+  })
+}
+
+/**
+ * Make a raw recording convenient to play: give it a duration index, then add an mp4 copy.
+ *
+ * MediaRecorder writes a live webm with no duration: it plays, but cannot be scrubbed and
+ * confuses editors. A stream copy fixes the index without touching a pixel, and the mp4
+ * is what phones, WeChat and 剪映 accept.
+ * @param {string} file - the webm just written.
+ * @returns {Promise<{ indexed: boolean, mp4: string | null }>} what is playable now.
+ */
+async function polishRecording(file) {
+  if (!await ffmpegAvailable()) return { indexed: false, mp4: null }
+  const temp = file.replace(/\.webm$/, '.indexed.webm')
+  const copied = await runFfmpeg(['-v', 'error', '-y', '-i', file, '-c', 'copy', temp])
+  let indexed = false
+  if (copied) {
+    try {
+      await rename(temp, file)
+      indexed = true
+    } catch {
+      try { await unlink(temp) } catch { /* gone */ }
+    }
+  } else {
+    try { await unlink(temp) } catch { /* gone */ }
+  }
+  const mp4 = file.replace(/\.webm$/, '.mp4')
+  const transcoded = await runFfmpeg([
+    '-v', 'error', '-y', '-i', file,
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-preset', 'veryfast', '-crf', '20',
+    '-movflags', '+faststart', mp4,
+  ])
+  return { indexed, mp4: transcoded ? mp4 : null }
 }
 
 /**
@@ -2004,13 +2085,32 @@ export function apply(ctx) {
         const bytes = Buffer.from(base64, 'base64')
         if (!bytes.length) return { text: 'The panel returned an empty recording.' }
         try {
+          // The panel's settings carry a recording folder; only an absolute path is
+          // honoured, and a broken one falls back to the harness default.
           await mkdir(RECORD_DIR, { recursive: true })
+          let targetDir = RECORD_DIR
+          const wanted = typeof reply.recordDir === 'string' ? reply.recordDir.trim() : ''
+          if (wanted && isAbsolute(wanted)) {
+            try {
+              await mkdir(wanted, { recursive: true })
+              targetDir = wanted
+            } catch { /* keep the default */ }
+          }
           const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-          const file = join(RECORD_DIR, `chubby-fish-${stamp}.webm`)
+          const file = join(targetDir, `chubby-fish-${stamp}.webm`)
           await writeFile(file, bytes)
+          const polished = await polishRecording(file)
           const seconds = Math.round((Number(reply.durationMs) || 0) / 1000)
           const frames = Number(reply.frames) || 0
-          return { text: `Recording saved: ${file}\n${Math.round(bytes.length / 1024)} KB, ${frames} frames, about ${seconds}s of painting.` }
+          const lines = [
+            `Recording saved: ${file}`,
+            `${Math.round(bytes.length / 1024)} KB, ${frames} frames, about ${seconds}s of painting.`,
+          ]
+          if (polished.mp4) lines.push(`mp4 copy (plays anywhere, phones and editors included): ${polished.mp4}`)
+          if (!polished.indexed) {
+            lines.push('No ffmpeg on this host, so the webm carries no duration index: it plays, but editors may show an unknown length. Fix it with: ffmpeg -i in.webm -c copy out.webm')
+          }
+          return { text: lines.join('\n') }
         } catch (error) {
           return { text: `Recording could not be written: ${String(error && error.message || error)}` }
         }
