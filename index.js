@@ -364,13 +364,13 @@ async function exportRecording(file, format) {
   let gif = null
   if (mode === 'gif') {
     const target = file.replace(/\.webm$/, '.gif')
-    // mpdecimate drops the still stretches — the picture can stand untouched for a second
-    // between strokes, and those frames are pure weight — then setpts re-times what is left
-    // to 12 fps, so the clip runs at the speed of the work rather than the speed of the
-    // clock. Palette pass after that: one to build it, one to dither through it.
+    // The recorder already cuts the still stretches out of the timeline, so there is
+    // nothing to decimate here — mpdecimate would also eat the slow watercolour ramps,
+    // whose frame-to-frame change sits under its threshold. Palette pass: one to build it,
+    // one to dither through it, or the colours band.
     const done = await runFfmpeg([
       '-v', 'error', '-y', '-i', file,
-      '-vf', 'mpdecimate=hi=256:lo=48:frac=0.25,setpts=N/(12*TB),fps=12,scale=680:-1:flags=lanczos,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=3',
+      '-vf', 'fps=12,scale=680:-1:flags=lanczos,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=3',
       '-loop', '0', target,
     ])
     if (done) gif = target
