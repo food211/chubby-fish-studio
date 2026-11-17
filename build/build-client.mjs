@@ -845,6 +845,12 @@ const __mpxRecorder = (function () {
 return {
     initApp,
     recorder: __mpxRecorder,
+    flush: function () {
+        // Commit whatever the painter still has queued, so a capture cannot read a
+        // framebuffer that is one frame behind the strokes the state already reports.
+        const livePainter = __mpxPainter();
+        if (livePainter && typeof livePainter.flush === 'function') livePainter.flush();
+    },
     el: mixCanvas,
     snapshot: __mpxSnapshot,
     state: __mpxState,

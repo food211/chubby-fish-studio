@@ -105,6 +105,8 @@ __MPX_VENDOR__
 
     function snapshotDataUrl(controller) {
       try {
+        // Same hazard as a render: read after the painter has committed its queued work.
+        try { if (controller.api.flush) controller.api.flush() } catch (_error) {}
         const canvas = controller.api.el;
         const longest = Math.max(canvas.width, canvas.height);
         const scale = Math.min(1, 900 / longest);
@@ -248,6 +250,23 @@ __MPX_VENDOR__
       };
     }
 
+    /**
+     * Capture the canvas for a glance or a zoom.
+     *
+     * The painter draws into its own framebuffer and blits to the visible canvas on the
+     * next animation frame, so a capture taken between the two shows the previous picture
+     * while the state already counts the new strokes. Flush, then let one frame land.
+     */
+    async function renderFrame(controller, spec) {
+      try {
+        if (controller.api.flush) controller.api.flush();
+      } catch (_error) {}
+      await new Promise((resolve) => {
+        try { window.requestAnimationFrame(() => resolve()); } catch (_error) { resolve(); }
+      });
+      return renderDataUrl(controller, spec);
+    }
+
     function applyOps(controller, payload) {
       const ops = payload && Array.isArray(payload.ops) ? payload.ops : [];
       if (!ops.length) return;
@@ -297,7 +316,7 @@ __MPX_VENDOR__
               }).catch(() => {});
             } else if (op.type === 'render') {
               // Answer a glance or a zoom: the host decides the size, the panel renders it.
-              const png = renderDataUrl(controller, op);
+              const png = await renderFrame(controller, op);
               await fetch('/mpx/canvas/render', {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
