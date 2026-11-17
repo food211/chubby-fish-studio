@@ -19,6 +19,7 @@ const SAMPLE_PATH = '/mpx/canvas/sample'
 const DONE_PATH = '/mpx/canvas/done'
 const RENDER_PATH = '/mpx/canvas/render'
 const RECORD_PATH = '/mpx/canvas/record'
+const SETTINGS_PATH = '/mpx/canvas/settings'
 const LAST_PATH = '/mpx/canvas/last'
 const DEBUG_PATH = '/mpx/canvas/debug'
 
@@ -110,6 +111,8 @@ const STATE_DIR = join(HARNESS_HOME, 'canvas-state')
 const NOTES_DIR = join(HARNESS_HOME, 'canvas-notes')
 /** Recorded drawing clips land here, one webm per recording. */
 const RECORD_DIR = join(HARNESS_HOME, 'canvas-recordings')
+/** Panel preferences survive a restart here: the web origin (and its localStorage) does not. */
+const SETTINGS_FILE = join(HARNESS_HOME, 'canvas-settings.json')
 /** Earlier builds wrote inside the profile; read from there once so nothing is lost. */
 const LEGACY_STATE_DIR = process.env.DSH_PROFILE_DIR
   ? join(process.env.DSH_PROFILE_DIR.trim(), 'canvas-state')
@@ -819,6 +822,45 @@ export function apply(ctx) {
       json(res, 200, { ok: true, matched: Boolean(resolve) })
     },
   }), 'mixbox-palette: canvas recording route')
+
+  /**
+   * Keep the panel's preferences across restarts.
+   *
+   * DSH web changes its port every launch, and localStorage is per origin, so a folder or
+   * an export format kept only in the browser is gone the next time the app opens. The
+   * panel writes the same object here on every apply and reads it back on mount.
+   */
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'exact',
+    path: SETTINGS_PATH,
+    handler: async (req, res) => {
+      if (req.method === 'GET') {
+        try {
+          const parsed = JSON.parse(await readFile(SETTINGS_FILE, 'utf8'))
+          json(res, 200, { ok: true, settings: parsed && typeof parsed === 'object' ? parsed : {} })
+        } catch {
+          json(res, 200, { ok: true, settings: {} })
+        }
+        return
+      }
+      if (req.method !== 'POST') { json(res, 405, { ok: false, reason: 'method' }); return }
+      let payload
+      try {
+        payload = JSON.parse((await readBody(req)).toString('utf8'))
+      } catch {
+        json(res, 400, { ok: false, reason: 'bad-json' })
+        return
+      }
+      const settings = payload?.settings && typeof payload.settings === 'object' ? payload.settings : {}
+      try {
+        await mkdir(HARNESS_HOME, { recursive: true })
+        await writeFile(SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf8')
+        json(res, 200, { ok: true })
+      } catch (error) {
+        json(res, 500, { ok: false, reason: String(error && error.message || error) })
+      }
+    },
+  }), 'mixbox-palette: canvas settings route')
 
   /**
    * Relay the user's own message about the painting, with the canvas attached.

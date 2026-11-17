@@ -11427,20 +11427,43 @@ return {
       return Math.max(min, Math.min(max, Math.round(number)));
     }
 
+    /** Coerce anything into a valid settings object. */
+    function normalizeSettings(raw) {
+      const merged = Object.assign({}, DEFAULT_SETTINGS, raw && typeof raw === 'object' ? raw : {});
+      merged.mode = merged.mode === 'realtime' ? 'realtime' : 'manual';
+      merged.minStrokes = clampInt(merged.minStrokes, 1, 50, DEFAULT_SETTINGS.minStrokes);
+      merged.minPixelChange = clampInt(merged.minPixelChange, 0, 100, DEFAULT_SETTINGS.minPixelChange);
+      merged.cooldownSec = clampInt(merged.cooldownSec, 0, 600, DEFAULT_SETTINGS.cooldownSec);
+      merged.recordDir = typeof merged.recordDir === 'string' ? merged.recordDir.trim() : '';
+      merged.recordFormat = ['both', 'webm', 'mp4', 'gif'].includes(merged.recordFormat) ? merged.recordFormat : 'both';
+      return merged;
+    }
+
     function loadSettings() {
       try {
         const raw = JSON.parse(window.localStorage.getItem(SETTINGS_KEY) || '{}');
-        const merged = Object.assign({}, DEFAULT_SETTINGS, raw && typeof raw === 'object' ? raw : {});
-        merged.mode = merged.mode === 'realtime' ? 'realtime' : 'manual';
-        merged.minStrokes = clampInt(merged.minStrokes, 1, 50, DEFAULT_SETTINGS.minStrokes);
-        merged.minPixelChange = clampInt(merged.minPixelChange, 0, 100, DEFAULT_SETTINGS.minPixelChange);
-        merged.cooldownSec = clampInt(merged.cooldownSec, 0, 600, DEFAULT_SETTINGS.cooldownSec);
-        merged.recordDir = typeof merged.recordDir === 'string' ? merged.recordDir.trim() : '';
-        merged.recordFormat = ['both', 'webm', 'mp4', 'gif'].includes(merged.recordFormat) ? merged.recordFormat : 'both';
-        return merged;
+        return normalizeSettings(raw);
       } catch (_error) {
         return Object.assign({}, DEFAULT_SETTINGS);
       }
+    }
+
+    /**
+     * Settings outlive the origin.
+     *
+     * DSH web changes its port on every restart, and localStorage is per origin, so a
+     * preference kept only here is gone the next launch. The host keeps a copy on disk.
+     */
+    function loadHostSettings() {
+      return fetch('/mpx/canvas/settings').then((response) => (response.ok ? response.json() : null)).catch(() => null);
+    }
+
+    function saveHostSettings(settings) {
+      return fetch('/mpx/canvas/settings', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ settings }),
+      }).catch(() => null);
     }
 
     function saveSettings(next) {
@@ -11993,6 +12016,7 @@ return {
         };
         controller.settings = next;
         saveSettings(next);
+        saveHostSettings(next);
         controller.inbox.strokes = 0;
         controller.inbox.change = 0;
         close();
@@ -12213,6 +12237,18 @@ return {
         controller.ctx = ctx;
         CACHE = controller;
         controller.settings = loadSettings();
+        // The host keeps the last settings: a restart changes the origin, and localStorage
+        // goes with it, so the local copy is only a fast first paint.
+        loadHostSettings().then((host) => {
+          if (!host || !host.ok || !host.settings) return;
+          controller.settings = normalizeSettings(Object.assign({}, controller.settings, host.settings));
+          saveSettings(controller.settings);
+          const handle = controller.settingsHandle;
+          if (handle) {
+            try { handle.refreshLabel() } catch (_error) {}
+            try { handle.refreshMode() } catch (_error) {}
+          }
+        });
         controller.inbox = { strokes: 0, change: 0, lastTrigger: 0, busy: false };
         // Only a change the user makes to the picture itself invalidates a look: painting on
         // the canvas, undo/redo/clear (button or Ctrl+Z). Picking a colour or dragging a size
