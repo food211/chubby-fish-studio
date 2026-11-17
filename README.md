@@ -1,5 +1,12 @@
 # 🐟 肥鱼画室 · Chubby fish studio
 
+<p align="center">
+  <img src="docs/gallery/jellyfish.gif" alt="三只水母：AI 在这张画布上一笔一笔画出来，3 倍速" width="620">
+</p>
+<p align="center">
+  <sub><b>上面这段不是生成的图</b>，是 <code>canvas_record</code> 录下来的作画过程——三只水母、水下背景和水草，一笔一笔落笔，录完抽掉 2/3 的帧，3 倍速，最后一帧定格 1 秒。</sub>
+</p>
+
 *大肥鱼自画像。约 180 笔，画在这个画布上：深蓝到浅蓝的鲸尾小女仆，白蕾丝头巾、蓝蝴蝶结、鲸鱼鳍耳，白围裙上一枚小鲸鱼徽记。左下角是朱红印章。*
 
 <table>
@@ -26,7 +33,7 @@
 </tr>
 </table>
 
-上面四张画都是大肥鱼在画布里逐笔画的。右上那张是当时的对话截图——写"正在运行命令"的时候，就是 `canvas_draw` 在落笔。
+上面这些——开头那段水母 GIF 和这四张画——都是大肥鱼在画布里逐笔画的。右上那张是当时的对话截图——写"正在运行命令"的时候，就是 `canvas_draw` 在落笔。
 
 **右侧栏里一张你和 AI 共用的画布**：真实的颜料混色、真实的湿画扩散。你画，它看得见；它画，你随时撤销。
 
@@ -281,9 +288,10 @@ A DeepSeek Harness plugin that gives the assistant you are talking to (known as
   canvas in that session, and refuses again if the picture changed since that look (the
   user painted, undid, cleared, or the panel reloaded) — so a stale picture can never be
   painted over by accident.
-- **The agent paints on your canvas, itself.** The paintings above were made stroke by
-  stroke through `canvas_draw`; `canvas_look` shows it the picture and `canvas_sample`
-  reads exact pixels. Every agent stroke lands in your undo stack.
+- **The agent paints on your canvas, itself.** The paintings above, and the jellyfish clip
+  at the top, were made stroke by stroke through `canvas_draw` and `canvas_record`;
+  `canvas_look` shows it the picture and `canvas_sample` reads exact pixels. Every agent
+  stroke lands in your undo stack.
 - **Two tempos**: manual, or realtime where stroke events queue in an inbox and trigger a
   look only once the stroke count, pixel-change and cooldown thresholds are met.
 - **Survives restarts**: snapshots live in `<DSH_HOME>/canvas-state/` and are restored on
