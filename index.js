@@ -128,12 +128,12 @@ const CANVAS_PROMPT = [
   'The user has a pigment-mixing painting canvas: the 肥鱼画室 panel in the right sidebar. You can see it and paint on it through the same pigment pipeline the user paints with.',
   'Look at three prices: `canvas_glance` (the whole canvas as a thumbnail — placement and big shapes), `canvas_zoom` (one rectangle in canvas fractions, enlarged — a detail for the price of the crop), `canvas_look` (full size plus brush, palette and colours — when colour or an exact edge matters, or before advising on the painting). `canvas_state` gives the same facts without a picture and is not a look.',
   'You cannot paint blind: `canvas_draw` refuses strokes until you have looked at the whole canvas this session, and again if the canvas has changed since that look (the user painted, undid, cleared, or the panel reloaded). After a refusal, look (a glance is enough), then draw — never retry it unchanged. Your own strokes do not invalidate the look.',
-  '`canvas_draw` paints strokes and also carries `smudge` plus the undo/redo/clear actions; every stroke lands in the user undo stack. A stroke takes colour, size, strength, wetness, spacing, brushType and optionally usePressure. Points are canvas pixels, or fractions of the canvas when every value is in 0-1. `size` is the half-width on the wash brushes (they spread about twice it) and about the full width on circle/flat/soft.',
+  '`canvas_draw` paints strokes and also carries `smudge` plus the undo/redo/clear actions; every stroke lands in the user undo stack. Points are canvas pixels, or fractions of the canvas when every value is in 0-1. `size` is the half-width on the wash brushes (they spread about twice it) and about the full width on circle/flat/soft.',
   'Keep a call to a handful of strokes, about eight: a long or wide call that gets mangled costs the whole batch, while small calls lose only their own. A path can be the compact string "0.36,0.60 0.37,0.65", sturdier for long paths, and curves are curves — "… q cx,cy x,y" is one arc.',
   'Draw shapes as shapes, not piles of rows: `ellipse: [cx, cy, rx, ry]` (with `ring`, `from`/`to`, `seam`, `jitter`), `polygon`, and `mirror: "x"` for a symmetrical pair — that is how eyes, ears and hair locks come out even in one call.',
   'Depth comes from strength and a second pass, not from wetness: 20 is barely a stain, 77 lands about 60% of the pigment, only near 100 does the colour read as itself. Wetness is how far the edge travels (100 bleeds, 20 holds), so lower it to sharpen a shape rather than to darken it — and a watercolor at low wetness goes patchy, not solid.',
-  'Choose the brush by the job: `watercolor` for atmosphere at strength 100 / wetness 100; `circle` and `soft` for clean opaque shapes; `flat` for blocks, or for pencil line art at a small size with `spacing` 1 and strength 75-90; `splatter` for grain; `dry` for a dry 毛笔, forked and coarse, rarely. No setting makes a watercolor white opaque over dark, and circle/flat/soft cannot make a wash. Call `canvas_brushes` once before choosing brushes instead of guessing — it returns the labelled swatch sheet and the same table.',
-  'Pressure narrows and pales at once, so a whole silhouette drawn with tapered strokes comes out weak: build the shape at full pressure, then place the points and the fades. Pick the pressureCurve (linear, soft, firm, ink) before the numbers; a tendril usually reads best with soft from 0.85 to 0.3.',
+  'Pick the brush by the job — `watercolor` for atmosphere, `circle`/`soft` for clean opaque shapes, `flat` for blocks or (small size, `spacing` 1, strength 75-90) for pencil lines, `splatter` for grain, `dry` rarely — and call `canvas_brushes` once for the settings and the swatch sheet instead of guessing. No setting turns a watercolor white opaque over dark, and circle/flat/soft cannot make a wash.',
+  'Pressure narrows and pales at once, so a silhouette drawn with tapered strokes comes out weak: build the shape at full pressure, then place the points and the fades. Pick the pressureCurve (linear, soft, firm, ink) before the numbers.',
   'When the user asks for help with painting, look first, name one concrete problem, and demonstrate with one short stroke instead of a long description.',
   'The panel may start a turn when it decides the painting changed enough: treat that as an invitation to look and say one useful sentence, not to re-describe the canvas.',
   `Shared painting memory at ${NOTES_DIR}: \`canvas_notes\` with no arguments returns the index (one line per note), \`action: "read", file: …\` returns one note. Read it before a new painting, and append the line that would have saved a repaint — one conclusion per line, delete what is no longer true, the directory has a hard size cap.`,
@@ -262,6 +262,30 @@ export function apply(ctx) {
     if (!entry || typeof entry.png !== 'string') return undefined
     if (!entry.stamp) entry.stamp = createHash('sha1').update(entry.png).digest('hex')
     return entry.stamp
+  }
+
+  /**
+   * The state a look actually needs, one line instead of the whole dump.
+   *
+   * A glance or a zoom is about where things are; re-sending brush, palette, colour list
+   * and viewport on every one of them is paying for something the model read once. The
+   * full state still comes with canvas_look and canvas_state.
+   * @param {unknown} meta - the snapshot's meta from the panel.
+   * @returns {string} compact JSON.
+   */
+  function compactState(meta) {
+    const view = meta && typeof meta === 'object' ? meta : {}
+    const brush = view.brush && typeof view.brush === 'object' ? view.brush : {}
+    const colours = view.colors && typeof view.colors === 'object' ? view.colors : {}
+    return JSON.stringify({
+      canvas: view.canvas,
+      brush: brush.type,
+      size: brush.size,
+      strength: view.concentration,
+      wetness: view.wetness,
+      fg: colours.foreground,
+      history: view.history,
+    })
   }
 
   /**
@@ -399,10 +423,19 @@ export function apply(ctx) {
       const sessionId = typeof payload?.sessionId === 'string' ? payload.sessionId : ''
       const parsed = parseDataUrl(payload?.png)
       if (!sessionId || !parsed) { json(res, 400, { ok: false, reason: 'bad-payload' }); return }
-      const entry = { png: payload.png, meta: payload.meta ?? null, at: Date.now() }
+      const rawMeta = payload?.meta ?? null
+      // The panel tags each push with whatever changed the canvas last. A push that only
+      // carries the model's own strokes must not invalidate the look it just took, or the
+      // guard would force a fresh glance between every batch of strokes it paints.
+      const origin = rawMeta && typeof rawMeta === 'object' && rawMeta.origin === 'agent' ? 'agent' : 'user'
+      const meta = rawMeta && typeof rawMeta === 'object' ? { ...rawMeta } : rawMeta
+      if (meta && typeof meta === 'object') delete meta.origin
+      const entry = { png: payload.png, meta, at: Date.now() }
       snapshots.set(sessionId, entry)
       const paintedAt = ownDrawAt.get(sessionId) || 0
-      if (Date.now() - paintedAt <= OWN_DRAW_GRACE_MS) lastSeen.set(sessionId, stampOf(entry))
+      if (lastSeen.has(sessionId) && (origin === 'agent' || Date.now() - paintedAt <= OWN_DRAW_GRACE_MS)) {
+        lastSeen.set(sessionId, stampOf(entry))
+      }
       // Bound the in-memory map too: one entry per session, oldest evicted first.
       if (snapshots.size > MAX_MEMORY_SNAPSHOTS) {
         const oldest = [...snapshots.entries()]
@@ -841,7 +874,7 @@ export function apply(ctx) {
           '<path>canvas</path>',
           `<canvas>${width}x${height} px</canvas>`,
           `<glance>thumbnail ${ref.width}x${ref.height} px: placement and big shapes are reliable, a fine edge or an exact colour is not; call canvas_zoom on the region that matters</glance>`,
-          `<state>${JSON.stringify(meta)}</state>`,
+          `<state>${compactState(meta)}</state>`,
         ]
         if (width && ref.width) {
           lines.splice(2, 0, `<scale>x ${(width / ref.width).toFixed(3)}, y ${(height / ref.height).toFixed(3)} (multiply a coordinate measured on this picture by these to get canvas coordinates)</scale>`)

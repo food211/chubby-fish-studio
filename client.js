@@ -10874,6 +10874,9 @@ return {
       const dataUrl = snapshotDataUrl(controller);
       if (!dataUrl) return Promise.resolve(false);
       const meta = controller.api.state();
+      // Who changed the canvas last: a push that only carries the model's own strokes must
+      // not send it back to look at a picture it just painted.
+      meta.origin = controller.agentDirty ? 'agent' : 'user';
       meta.reason = reason || 'change';
       meta.viewport = { width: controller.api.el.width, height: controller.api.el.height };
       const body = JSON.stringify({ sessionId: controller.sessionId, png: dataUrl, meta });
@@ -10909,12 +10912,13 @@ return {
       const previous = controller.opChain || Promise.resolve(true);
       const next = previous.then(async () => {
         let applied = 0;
+        let agentMutated = false;
         for (const op of ops) {
           if (!op || typeof op.type !== 'string') continue;
           try {
             if (op.type === 'stroke') {
               const result = await controller.api.stroke(op.points || [], op);
-              if (result && result.ok) applied += 1;
+              if (result && result.ok) { applied += 1; agentMutated = true; }
               // Space the strokes so they read as separate marks, and so the painter has
               // time to retire the finished frame: pushing two frames in one task
               // occasionally lost one, and back-to-back strokes looked like one smear.
@@ -10922,12 +10926,15 @@ return {
             } else if (op.type === 'undo') {
               controller.api.undo();
               applied += 1;
+              agentMutated = true;
             } else if (op.type === 'redo') {
               controller.api.redo();
               applied += 1;
+              agentMutated = true;
             } else if (op.type === 'clear') {
               controller.api.clearCanvas();
               applied += 1;
+              agentMutated = true;
             } else if (op.type === 'sample') {
               // Answer the host's pixel probe on the channel it is waiting on.
               const colors = controller.api.sample(op.points || []);
@@ -10959,6 +10966,7 @@ return {
             console.warn('[mpx] op failed', op.type, error);
           }
         }
+        if (agentMutated) controller.agentDirty = true;
         if (applied) schedulePush(controller, 250);
         return true;
       }).catch((error) => {
@@ -11727,6 +11735,11 @@ return {
         CACHE = controller;
         controller.settings = loadSettings();
         controller.inbox = { strokes: 0, change: 0, lastTrigger: 0, busy: false };
+        // Any pointer or key activity in the panel is the user's: from then on a push is not
+        // the model's own paint, and the draw guard asks it for a fresh look again.
+        controller.agentDirty = false;
+        controller.bodyEl.addEventListener('pointerdown', () => { controller.agentDirty = false; }, true);
+        controller.bodyEl.addEventListener('keydown', () => { controller.agentDirty = false; }, true);
         // A settings-panel bug must never keep the canvas from starting.
         try {
           controller.settingsUi = buildSettingsUi(controller);
