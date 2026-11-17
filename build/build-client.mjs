@@ -1057,28 +1057,40 @@ const OVERRIDES = `
 .mpx-ask-btn:hover { background: rgba(87, 156, 224, 0.28); }
 .mpx-ask-btn:active { background: rgba(87, 156, 224, 0.38); }
 /* Sits in the status row's own flow at its left end: the ask button is absolutely
-   centred over that row, so anything positioned near the middle lands on top of it. */
+   centred over that row, so anything positioned near the middle lands on top of it.
+   Classic record control: a red dot that becomes a square while recording. */
 .mpx-record-btn {
     order: -1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     margin-right: 8px;
-    min-width: 26px;
+    width: 26px;
     height: 26px;
-    padding: 0 7px;
-    border-radius: 13px;
-    border: 1px solid rgba(224, 86, 63, 0.45);
-    background: rgba(224, 86, 63, 0.12);
-    color: var(--muted, #a5aab0);
-    font: inherit;
-    font-size: 12px;
-    line-height: 1;
-    white-space: nowrap;
+    padding: 0;
+    border-radius: 50%;
+    border: 1px solid var(--border, #41454a);
+    background: var(--surface, #2c2f32);
     cursor: pointer;
 }
-.mpx-record-btn:hover { background: rgba(224, 86, 63, 0.24); color: var(--text, #e8eaed); }
-.mpx-record-btn[data-recording="true"] {
-    color: #e0563f;
-    border-color: rgba(224, 86, 63, 0.8);
+.mpx-record-btn:hover { background: #3a3d41; }
+.mpx-record-btn::before {
+    content: "";
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: #e2483a;
+    transition: width 0.12s ease, height 0.12s ease, border-radius 0.12s ease;
 }
+.mpx-record-btn[data-recording="true"] {
+    border-color: rgba(226, 72, 58, 0.85);
+}
+.mpx-record-btn[data-recording="true"]::before {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+}
+.mpx-record-btn[data-phase="finishing"]::before { opacity: 0.45; }
 .mpx-ask-pop {
     position: absolute;
     z-index: 40;

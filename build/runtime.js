@@ -614,7 +614,7 @@ __MPX_VENDOR__
       recordButton.type = 'button';
       recordButton.className = 'mpx-record-btn';
       recordButton.setAttribute('data-mpx-record', '');
-      recordButton.textContent = '●';
+      recordButton.textContent = '';
       recordButton.title = L('Record the drawing as a webm video', '把绘制过程录成 webm 视频');
       pillHost.insertBefore(recordButton, pillHost.firstChild);
       pillHost.appendChild(pill);
@@ -1013,12 +1013,13 @@ __MPX_VENDOR__
       function refreshRecord() {
         const state = recorder.state();
         const busy = state.phase !== 'idle';
-        recordButton.textContent = state.phase === 'finishing' ? '…' : (busy ? '■' : '●');
+        recordButton.textContent = '';
         recordButton.setAttribute('data-recording', busy ? 'true' : 'false');
-        recordButton.style.color = busy ? '#e0563f' : '';
+        recordButton.setAttribute('data-phase', state.phase);
         recordButton.title = busy
-          ? L('Stop and save ' + Math.round(state.elapsedMs / 1000) + 's', '停止并保存（已录 ' + Math.round(state.elapsedMs / 1000) + ' 秒）')
+          ? L('Stop and save (' + Math.round(state.elapsedMs / 1000) + 's)', '停止并保存（已录 ' + Math.round(state.elapsedMs / 1000) + ' 秒）')
           : L('Record the drawing as a webm video', '把绘制过程录成 webm 视频');
+        recordButton.setAttribute('aria-label', recordButton.title);
       }
 
       function saveRecording(blob) {
@@ -1037,11 +1038,10 @@ __MPX_VENDOR__
         if (recorder.state().phase === 'idle') {
           const started = recorder.start();
           if (!started.ok) {
-            recordButton.textContent = started.reason === 'unsupported'
-              ? L('No recorder here', '这里不支持录制')
-              : L('Cannot record', '无法录制');
-            recordButton.style.color = '#e0563f';
-            window.setTimeout(refreshRecord, 2500);
+            panelNotice(bodyEl, started.reason === 'unsupported'
+              ? L('This browser has no MediaRecorder', '这个浏览器不支持录制')
+              : L('Cannot start recording', '无法开始录制'));
+            refreshRecord();
             return;
           }
           window.clearInterval(recordTimer);
