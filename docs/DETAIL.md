@@ -18,11 +18,52 @@ This is the plugin detail page. Install steps live in the repository README.
 | 工具 | 能力 |
 |---|---|
 | `canvas_look` | 画面（图片块）+ 像素尺寸 + 当前笔刷/调色板/颜色 + 撤销位置；必要时附缩放提示 |
+| `canvas_glance` / `canvas_zoom` | 缩略图 / 指定矩形放大，占画布前的两档便宜看 |
 | `canvas_state` | 同样的状态，不带图，省 token |
 | `canvas_draw` | 多条笔触；每条可单独指定颜色、尺寸、**浓度**、**湿度**、**笔刷材质**、**压感曲线**，或用涂抹；另有 `undo` / `redo` / `clear` |
 | `canvas_sample` | 读画布**真实像素**（面板端 `readPixelByte`），用来判断"这块到底多深" |
+| `canvas_brushes` | **笔刷样张**：`docs/brushes.png`（引擎自己画的标注样张）+ 每种笔刷一行说明；不占画布、不需要打开面板 |
+| `canvas_notes` | 共享画布记忆：多篇 Markdown，先索引再按篇读 |
 
 落笔走的是和手画完全相同的 `drawBrush` 管线；区别只在坐标系：agent 传的是画布像素坐标。
+
+## 笔刷不是纹理，是"这一笔画出来是什么"
+
+**先定用途，再选笔刷：**
+
+| 用途 | 笔刷 | 设置 |
+|---|---|---|
+| 氛围、大色块、背景、柔的体块 | `watercolor` | 浓度 100 + 湿度 100（面板默认） |
+| 清晰造型、平涂 | `circle`、`soft` | 浓度 100；`soft` 芯实边柔 |
+| 线稿、排线 | `flat` | size 小 + 间距 1%（`spacing: 1`）+ 浓度 75–90，像铅笔 |
+| 喷溅、颗粒、星点 | `splatter` | 浓度 100 |
+| 干毛笔的分叉、粗糙感（用得少） | `dry` | 浓度 100、低湿度 |
+
+同一种颜色（`#2A3557`）、`size` 20，画出来差这么多（浓度/湿度按样张标注，水彩笔用面板自己的默认 100/100）：
+
+| 笔刷 | 落笔画出的像素 | 读作 |
+|---|---|---|
+| `circle` | `#2A3557` | 满色、实心、边缘利落（任何尺寸都满色） |
+| `flat`，浓度 100 | `#2A3557` | 满色平涂，收笔更方更利 |
+| `flat`，小 size + 间距 1% + 浓度 75–90 | 淡成一层灰（样张那条是浓度 65 / 间距 5% 拍的，1% 更细） | 石墨铅笔线，适合线稿排线 |
+| `soft` | `#2A3557`（中心） | 满色，边缘柔到晕开，喷枪手感 |
+| `watercolor`，湿 100 | `#8897B8` | 会洇的湿画：边缘积水、会漂，约五成沉积，尺寸越大越淡 |
+| `watercolor`，湿 20 | `#B2C0D8` | 同色但干涩断续，边缘收得住——刻意的干笔速写，不是"更实的平涂" |
+| `dry` | `#ABB9D4` | 约三成，断成干丝、留白飞白；像干了的毛笔，笔毛分叉，用得少 |
+| `splatter` | `#52638D`（点心上） | 散点喷溅，没有实心 |
+
+宽度也不一样：`watercolor` / `dry` / `splatter` 的 `size` 近似半径（宽度≈2×size），`circle` / `flat` / `soft` 的宽度≈1×size。
+
+两条不随设置改变的硬边界：
+
+- **水彩笔的白色压深色永远是灰的**，刷多少遍都不会白回来（这是真水彩的物理，不是 bug）；把湿度降到 20 只会让它斑驳，不会变成实色。
+- 反过来 `circle` / `flat` / `soft` 也做不出湿画的水味——氛围感只能靠水彩。
+
+所以「改已经画过的地方、白压深、要干净边缘」用 `circle`/`flat`/`soft`，「氛围、头发高光、纸纹、喷溅」用 `watercolor`/`dry`/`splatter`，「线稿」用低浓度小尺寸的 `flat`。
+
+![笔刷样张](brushes.png)
+
+样张是引擎自己画的，由 `canvas_brushes` 直接交给模型；`index.js` 的 system prompt 里也写明了同一条结论，并让它在开画前先看一眼样张，而不是靠猜、也不是在你的画上试笔。
 
 压感按**曲线**响应（`pressureCurve`）：`linear` / `soft`（smoothstep，两端缓）/ `firm`（保宽后收）/ `ink`（早收，像出锋）。默认不放压感——因为低压力同时压低沉积，整幅画都用压感会又淡又薄；收尖只该用在须、鳍尖、线尾这类地方。
 
@@ -89,7 +130,9 @@ node build/build-client.mjs --src <upstream checkout>
 A shared painting canvas between you and the agent. The panel hosts a custom
 Kubelka–Munk pigment engine with a watercolour pipeline and six brush textures; the agent
 gets `canvas_look`, `canvas_state`, `canvas_draw` (per-stroke colour, size, concentration,
-wetness, brush texture, pressure curve, smudge, undo/redo/clear) and `canvas_sample`
-(exact pixels). Strokes are paced across frames and acknowledged, so a tool call returns
+wetness, brush texture, pressure curve, smudge, undo/redo/clear), `canvas_sample`
+(exact pixels) and `canvas_brushes` (a labelled swatch sheet painted by the engine, plus
+one line per brush — `circle`/`flat`/`soft` are opaque, `watercolor`/`dry`/`splatter` are
+not). Strokes are paced across frames and acknowledged, so a tool call returns
 only once the canvas really shows the finished stroke. Snapshots persist to
 `<DSH_HOME>/canvas-state/` and are restored on the next launch.

@@ -30,7 +30,7 @@
 
 **右侧栏里一张你和 AI 共用的画布**：真实的颜料混色、真实的湿画扩散。你画，它看得见；它画，你随时撤销。
 
-MIT · v0.2.0 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件
+MIT · v0.8.4 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件
 
 ## 它是什么
 
@@ -59,19 +59,90 @@ MIT · v0.2.0 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 
 ## 一起画
 
-打开画布后正常说话就行。四把工具只作用于当前会话的画布：
+打开画布后正常说话就行。这些工具只作用于当前会话的画布：
 
-| 工具 | 它用来做什么 |
+| 工具 | 它用来做什么 | 代价 |
+|---|---|---|
+| `canvas_glance` | **瞟一眼**：整张画缩成缩略图，看构图和大色块 | 最省 |
+| `canvas_zoom` | **凑近看**：给两个 0–1 的比例点（`from [0.2,0.3]` 到 `to [0.45,0.55]`），面板裁出这两点围成的矩形放大 | 只付这一块 |
+| `canvas_look` | **仔细看**：整张画原尺寸 + 像素尺寸、笔刷、调色板、颜色、撤销位置 | 最贵 |
+| `canvas_state` | 只读状态，不传图 | 最便宜，但**不算看过** |
+| `canvas_draw` | 落笔：多条笔触，每条可单独指定颜色、尺寸、**浓度**、**湿度**、**笔刷材质**、**压感曲线**，或用涂抹；也能 `undo` / `redo` / `clear` | — |
+| `canvas_sample` | 读准确像素色值 | 一次几个点 |
+| `canvas_brushes` | **笔刷样张**：一张由本引擎自己画出来的标注样张 + 每种笔刷一行说明；不占画布、不需要打开面板 | 一张图，可按需调用 |
+| `canvas_notes` | 读写**画布记忆**：多篇 MD 的目录，先看索引再读某一篇 | 索引很省，按篇读 |
+
+### 看三档，落笔前必须看过
+
+- 先 `canvas_glance` 看布局，再用 `canvas_zoom` 抠细节，只在颜色和边缘真的要紧时才 `canvas_look` 付整张图的账。
+- **`canvas_draw` 会拒绝落笔**：这个会话里还没看过整张画，或者上次看过之后画面又变了（用户画了、撤了、清空了、面板重载了），都会被打回，要求先看再画。它自己刚落下的笔触不算"变了"，所以能连着画。
+- `canvas_state` 只报参数、不给画面，所以不满足这条规则。
+
+坐标有两套，同一张画上通用：
+
+- **画布像素**（默认）：和 `canvas_look` 报的尺寸一致
+- **比例**：坐标全部落在 0–1 之间就自动按比例读，和 `canvas_zoom` 的 `from`/`to` 同一套——在缩略图上量到哪就写哪，不用换算。要强制时也可以写 `unit: "pixels"` / `"ratio"`
+
+长路径还能写成一行字符串，比嵌套数组更难写坏：
+
+```
+"path": "0.36,0.60 0.37,0.65 0.40,0.70:0.4"
+```
+
+空格分词、逗号分坐标、冒号后面跟压感（可省）。一次调用最好只带 8 笔上下——调用越长越容易被流截断，断了整批都白画。
+
+### 形状
+
+铺色不必一行行刷，形状可以直接给：
+
+```
+"ellipse": [0.5, 0.33, 0.12, 0.11]        填一个椭圆，一笔，边是一条干净的弧
+"ellipse": [0.5, 0.33, 0.12, 0.11], "ring": true     只描边
+"ellipse": [0.5, 0.33, 0.12, 0.11], "from": 200, "to": 340   画一段弧
+"polygon": [[0.36,0.52],[0.64,0.52],[0.68,0.74],[0.32,0.74]]  填一个多边形（host 切片成横带）
+"mirror": "x"                              同一笔再镜像一次，左右对称的成对元素一笔搞定
+```
+
+椭圆是**从圆心往外绕的螺旋**，所以边缘平滑没有圆头帽的鼓包；`size` 同时决定间距，填满靠它。
+
+### 曲线
+
+一条弧不用铺一串点，`q`/`c` 后面给控制点就行：
+
+```
+"0.30,0.40 q 0.50,0.10 0.70,0.40"          一次贝塞尔弧（二次）
+"0.20,0.60 c 0.30,0.20 0.60,0.20 0.80,0.60" 两个控制点（三次）
+```
+
+散点也会自动圆滑：三点以上默认走 Chaikin 细分，所以一撮头发、一条尾巴只要三四个点，不用自己插值。要保留尖角就写 `smooth: false`。
+
+收尖不用手写压感数组，给一句 `taper: "out"` 就行——压力在最后 45% 上从 1 降到 0.3，配 `soft` 曲线。低压力**同时**让笔触变细和变淡，至于这读起来是"收尖"还是"发虚"，跟形状有关，值得试了再看，不用先下结论。
+
+`size` 是笔触**从路径往两侧各铺多远**，所以一笔的宽度大约是它的两倍。
+
+### 画布记忆：多篇 MD + 渐进加载
+
+`<DSH_HOME>/canvas-notes/` 是一个小目录，一篇笔记一个主题（`brushes.md`、`composition.md`、`mistakes.md`……）。**不同会话共用**，所以上个对话摸出来的手感，下个对话直接继承。
+
+不整份塞进上下文，按需加载：
+
+| 动作 | 返回 |
 |---|---|
-| `canvas_look` | 看一眼：画面、像素尺寸、当前笔刷/调色板/颜色、撤销位置 |
-| `canvas_draw` | 落笔：多条笔触，每条可单独指定颜色、尺寸、**浓度**、**湿度**、**笔刷材质**、**压感曲线**，或用涂抹；也能 `undo` / `redo` / `clear` |
-| `canvas_sample` | 读准确像素色值 |
-| `canvas_state` | 只读状态，不传图 |
+| `canvas_notes`（默认 index） | 每篇一行：标题 + 首行 + 字数，连同总量占了多少 |
+| `action: "read", file: "brushes"` | 只返回这一篇全文 |
+| `action: "append", file, text` | 往某一篇追加一行；新文件名就是新建一篇 |
+| `action: "replace"` / `"delete"` | 整篇重写 / 删掉一篇 |
+
+预算：单篇 2400 字、整份 12000 字。**超了不收**，而是回一份清单（每篇多少字）让你自己收拾：合并讲同一件事的、删掉被推翻或过时的，用 `replace` 写回压缩版、`delete` 清掉该走的，再 `append` 那一条。
+
+第一次调用会自动铺三篇种子笔记，之后就不再插手——你删掉哪篇都不会被重新种回来。
 
 对话里可以这么说：
 
-- 「看看我画的」→ 它看一眼，给一句具体的观察
-- 「这块太闷了，示范一下」→ 它先说一句问题，然后落一两笔，你 `Ctrl+Z` 就撤掉
+- 「瞟一眼，说说整体」→ 它用 `canvas_glance`，便宜
+- 「看看右下角那朵花」→ 它用 `canvas_zoom`，只裁那一块
+- 「看看我画的」→ 它 `canvas_look` 仔细看，给一句具体的观察
+- 「这块太闷了，示范一下」→ 它先看一眼，落一两笔，你 `Ctrl+Z` 就撤掉
 - 「帮我把这片天空改成傍晚」→ 它先取色确认现状，再叠色
 - 「我在画竹林，你别动」→ 手动模式下不会有自动看画打断你
 
@@ -100,7 +171,34 @@ MIT · v0.2.0 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 
 ### 六种笔刷 + 涂抹
 
-`watercolor`（湿、渗、散点） · `dry`（干笔飞白） · `splatter`（喷溅） · `circle`（硬边圆） · `soft`（柔边） · `flat`（方头平涂，边缘利落）。涂抹把已画的颜色沿路径拖开，同样进撤销栈。
+**先定用途，再选笔刷。** 笔刷不是"纹理"，它决定这一笔**画出来是什么**——这是落笔时最容易选错、也最贵的一步：
+
+| 我想画 | 用哪支 | 设置 |
+|---|---|---|
+| 氛围、大色块、背景、柔的体块 | `watercolor` | 浓度 **100** + 湿度 **100**（面板默认就是） |
+| 清晰造型、平涂、边缘利落 | `circle`、`soft` | 浓度 100；`soft` 的边缘是柔的，芯是实的 |
+| 线稿、排线、草稿 | `flat` | **size 小** + **间距 1%**（`spacing: 1`）+ 浓度 **75–90**，出铅笔试的细线 |
+| 喷溅、颗粒、星点 | `splatter` | 浓度 100 |
+| 干毛笔的分叉、粗糙感（用得少） | `dry` | 浓度 100，低湿度 |
+
+同色同尺寸下画出来差这么多：
+
+| 笔刷 | 画出来是什么 | 宽度 |
+|---|---|---|
+| `circle` | 实色、不透明、边缘利落，任何尺寸都是满色 | ≈ 1×size |
+| `flat` | 浓度 100 是实色方块；小 size + 间距 1% + 浓度 75–90 就变成铅笔线 | ≈ 1×size |
+| `soft` | 实心 + 柔边，喷枪手感 | ≈ 1×size，外加晕开 |
+| `watercolor`（湿 100） | 会洇的湿画：边缘积水会漂，约一半沉积，尺寸越大越淡 | ≈ 2×size |
+| `watercolor`（湿 20） | 同色但干涩断续、边缘收得住——刻意的速写笔，不是"更实的平涂" | ≈ 2×size |
+| `dry` | 像干了的毛笔：笔毛分叉、飞白、粗糙，用得少 | ≈ 2×size |
+| `splatter` | 散点喷溅，没有实心 | ≈ 2×size 加散点 |
+| 涂抹 | 把已经画上的颜色沿路径拖开 | 沿路径 |
+
+两条不随设置改变的硬边界：**水彩笔的白色压深色永远是灰的**，刷多少遍都白不回来（把湿度降到 20 只会让它斑驳）；反过来 `circle` / `flat` / `soft` 也做不出湿画的水味。
+
+![笔刷样张](docs/brushes.png)
+
+样张是引擎自己画的（同一支深蓝、纸面、每条一整笔，浓度和湿度按图标注），右下角那张格子里写的就是上面这套配方。模型可以调 `canvas_brushes` 随时拿到这张图连同同一份表——所以它不用靠猜，也不用在你的画上试笔。
 
 ### 落笔逐帧推进
 
@@ -108,7 +206,7 @@ MIT · v0.2.0 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 
 ### 压感按曲线响应
 
-默认不用压感：低压力同时也压低颜料沉积，整幅都用会又淡又薄。收尖只放在须、鳍尖、线尾这类地方。
+默认不用压感：低压力同时也压低颜料沉积，同一只旋钮既让笔触变细也让颜料变薄。什么时候值得付这个代价，交给模型自己试——文档只把机制说清楚，不划范围。
 
 | 曲线 | 映射 | 手感 |
 |---|---|---|
@@ -172,6 +270,13 @@ A DeepSeek Harness plugin that gives the assistant you are talking to (known as
 
 - **Real pigment mixing** through a Kubelka–Munk engine, a watercolour pipeline with
   concentration, paper wetness, wet edges and drips, six brush textures and a smudge tool.
+- **Three ways to look, at three prices**: `canvas_glance` is a thumbnail of the whole
+  canvas, `canvas_zoom` is one enlarged crop, `canvas_look` is the whole picture at full
+  size. The agent is expected to spend the cheapest one that answers its question.
+- **No painting blind**: `canvas_draw` refuses strokes until the agent has looked at the
+  canvas in that session, and refuses again if the picture changed since that look (the
+  user painted, undid, cleared, or the panel reloaded) — so a stale picture can never be
+  painted over by accident.
 - **The agent paints on your canvas, itself.** The paintings above were made stroke by
   stroke through `canvas_draw`; `canvas_look` shows it the picture and `canvas_sample`
   reads exact pixels. Every agent stroke lands in your undo stack.
