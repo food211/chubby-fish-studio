@@ -1,10 +1,10 @@
 # 🐟 肥鱼画室 · Chubby fish studio
 
-*大肥鱼自画像。45 笔，`#4D6BFE`（DeepSeek 蓝），画在这个画布上。右下角是落款。*
+*大肥鱼自画像。约 180 笔，画在这个画布上：深蓝到浅蓝的鲸尾小女仆，白蕾丝头巾、蓝蝴蝶结、鲸鱼鳍耳，白围裙上一枚小鲸鱼徽记。左下角是朱红印章。*
 
 <table>
 <tr>
-<td width="54%"><img src="docs/gallery/portrait.png" alt="自画像：一条用 DeepSeek 蓝画的水彩鲸鱼"></td>
+<td width="54%"><img src="docs/gallery/portrait.png" alt="自画像：蓝发鲸尾的小女仆，一笔一笔画出来的"></td>
 <td width="46%"><img src="docs/gallery/proof.png" alt="当时的对话截图：正在运行命令"></td>
 </tr>
 <tr>
@@ -20,9 +20,9 @@
 <td width="34%"><img src="docs/gallery/flower.webp" alt="小花"></td>
 </tr>
 <tr>
-<td align="center"><sub>竹林 · 50 笔（<code>flat</code> 与 <code>watercolor</code> 混用）</sub></td>
-<td align="center"><sub>风景 · 10 笔（100% 湿度的水洗）</sub></td>
-<td align="center"><sub>小花 · 22 笔 + 3 笔涂抹</sub></td>
+<td align="center"><sub>竹林 · 44 笔（<code>watercolor</code> 起雾、<code>circle</code> 铺竿、<code>taper</code> 收叶尖）</sub></td>
+<td align="center"><sub>风景 · 41 笔（水洗天光，铺出三重山与湖）</sub></td>
+<td align="center"><sub>小花 · 37 笔（花瓣从尖端往花心落笔，<code>taper</code> 收窄）</sub></td>
 </tr>
 </table>
 
