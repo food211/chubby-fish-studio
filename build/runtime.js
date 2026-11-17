@@ -318,7 +318,12 @@ __MPX_VENDOR__
                 }, reply)),
               }).catch(() => {});
               if (reply && reply.ok && op.action === 'stop') {
-                panelNotice(controller.bodyEl, L('The agent saved the recording', '模型已保存这次录制'));
+                const kb = Math.round((Number(reply.bytes) || 0) / 1024);
+                if (controller.showRecToast) controller.showRecToast(L('Saved · ' + kb + ' KB', '已保存 · ' + kb + ' KB'), 2200);
+              } else if (reply && reply.ok && op.action === 'start') {
+                if (controller.showRecToast) controller.showRecToast(L('● Recording', '● 录制中'), 2000);
+              } else if (reply && !reply.ok && controller.showRecToast) {
+                controller.showRecToast(String(reply.reason || L('recording failed', '录制失败')), 3200);
               }
             } else if (op.type === 'clear-records') {
               applied += 0;
@@ -1123,6 +1128,24 @@ __MPX_VENDOR__
       const recorder = api.recorder;
       let recordTimer = 0;
 
+      // Start / stop is announced over the painting itself: a corner notice is easy to
+      // miss while watching the canvas.
+      const recToast = window.document.createElement('div');
+      recToast.className = 'mpx-rec-toast';
+      recToast.setAttribute('data-on', 'false');
+      recToast.setAttribute('role', 'status');
+      recToast.setAttribute('aria-live', 'polite');
+      shadow.appendChild(recToast);
+      let recToastTimer = 0;
+      function showRecToast(text, holdMs) {
+        recToast.textContent = text;
+        recToast.setAttribute('data-on', 'true');
+        window.clearTimeout(recToastTimer);
+        recToastTimer = window.setTimeout(() => recToast.setAttribute('data-on', 'false'), holdMs || 1700);
+      }
+      // The agent drives the same recorder; its start/stop announces itself here too.
+      controller.showRecToast = showRecToast;
+
       function refreshRecord() {
         const state = recorder.state();
         const busy = state.phase !== 'idle';
@@ -1151,27 +1174,29 @@ __MPX_VENDOR__
         if (recorder.state().phase === 'idle') {
           const started = recorder.start();
           if (!started.ok) {
-            panelNotice(bodyEl, started.reason === 'unsupported'
+            showRecToast(started.reason === 'unsupported'
               ? L('This browser has no MediaRecorder', '这个浏览器不支持录制')
-              : L('Cannot start recording', '无法开始录制'));
+              : L('Cannot start recording', '无法开始录制'), 2600);
             refreshRecord();
             return;
           }
           window.clearInterval(recordTimer);
           recordTimer = window.setInterval(refreshRecord, 500);
           refreshRecord();
+          showRecToast(L('● Recording', '● 录制中'), 2000);
           return;
         }
         window.clearInterval(recordTimer);
         recordTimer = 0;
         recordButton.textContent = L('… Saving', '… 生成中');
+        showRecToast(L('■ Saving the clip…', '■ 正在保存…'), 9000);
         const result = await recorder.stop();
         refreshRecord();
         if (result && result.ok && result.blob && result.bytes > 0) {
           saveRecording(result.blob);
-          panelNotice(bodyEl, L(
-            'Saved ' + Math.round(result.bytes / 1024) + ' KB, ' + result.frames + ' frames',
-            '已保存 ' + Math.round(result.bytes / 1024) + ' KB，' + result.frames + ' 帧'));
+          showRecToast(L('Saved · ' + Math.round(result.bytes / 1024) + ' KB', '已保存 · ' + Math.round(result.bytes / 1024) + ' KB'), 2200);
+        } else {
+          showRecToast(L('Nothing was captured — keep the panel visible while painting', '没抓到画面——录制时别把面板切走'), 3200);
         }
       });
 

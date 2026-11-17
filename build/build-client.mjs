@@ -1188,6 +1188,49 @@ const OVERRIDES = `
     border-radius: 2px;
 }
 .mpx-record-btn[data-phase="finishing"]::before { opacity: 0.45; }
+/* Recording has to be visible without looking at the button: a slow glow, not a blink. */
+@keyframes mpx-rec-breathe {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(226, 72, 58, 0.00);
+        border-color: rgba(226, 72, 58, 0.55);
+    }
+    50% {
+        box-shadow: 0 0 0 5px rgba(226, 72, 58, 0.18);
+        border-color: rgba(255, 110, 92, 0.95);
+    }
+}
+.mpx-record-btn[data-recording="true"] {
+    animation: mpx-rec-breathe 1.9s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+    .mpx-record-btn[data-recording="true"] { animation: none; box-shadow: 0 0 0 4px rgba(226, 72, 58, 0.16); }
+}
+/* Start / stop feedback sits over the middle of the painting, not in a corner. */
+.mpx-rec-toast {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    z-index: 60;
+    max-width: 70%;
+    padding: 10px 18px;
+    border-radius: 22px;
+    background: rgba(18, 20, 24, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    color: #f3f5f8;
+    font: 13px/1.45 system-ui, sans-serif;
+    text-align: center;
+    letter-spacing: 0.02em;
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(-50%, -50%) scale(0.96);
+    transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.mpx-rec-toast[data-on="true"] {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+}
 .mpx-pick-btn {
     height: 26px;
     padding: 0 10px;
