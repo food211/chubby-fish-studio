@@ -1162,6 +1162,20 @@ const OVERRIDES = `
     border-radius: 2px;
 }
 .mpx-record-btn[data-phase="finishing"]::before { opacity: 0.45; }
+.mpx-pick-btn {
+    height: 26px;
+    padding: 0 10px;
+    margin-left: 6px;
+    border-radius: 4px;
+    border: 1px solid var(--border, #41454a);
+    background: var(--surface, #2c2f32);
+    color: var(--text, #e8eaed);
+    font: inherit;
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+}
+.mpx-pick-btn:hover { background: #3a3d41; }
 .mpx-ask-pop {
     position: absolute;
     z-index: 40;

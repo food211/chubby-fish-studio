@@ -713,8 +713,9 @@ __MPX_VENDOR__
         '<div class="mpx-divider"></div>',
         `<p class="mpx-section">${L('Recording folder', '录制保存目录')}</p>`,
         `<div class="mpx-field"><label>${L('Save to', '保存到')}</label>`
-          + '<input type="text" data-mpx-record-dir spellcheck="false" autocomplete="off"></div>',
-        `<p class="mpx-hint">${L('An absolute path. Leave it empty for the harness default; the folder is created if it is missing.', '填绝对路径；留空则用默认目录（harness home 下的 canvas-recordings）。目录不存在会自动创建。')}</p>`,
+          + `<button type="button" class="mpx-pick-btn" data-mpx-record-pick>${L('Choose folder…', '选择文件夹…')}</button>`
+          + `<button type="button" class="mpx-pick-btn" data-mpx-record-clear>${L('Default', '用默认')}</button></div>`,
+        '<p class="mpx-hint" data-mpx-record-dir></p>',
         '<div class="mpx-divider"></div>',
         `<p class="mpx-section">${L('When the agent looks', '模型何时看画')}</p>`,
         `<div class="mpx-field"><label>${L('Mode', '模式')}</label><div class="mpx-seg">`
@@ -756,7 +757,35 @@ __MPX_VENDOR__
       const strokesInput = modal.querySelector('[data-mpx-strokes]');
       const changeInput = modal.querySelector('[data-mpx-change]');
       const cooldownInput = modal.querySelector('[data-mpx-cooldown]');
-      const recordDirInput = modal.querySelector('[data-mpx-record-dir]');
+      const recordPickBtn = modal.querySelector('[data-mpx-record-pick]');
+      const recordClearBtn = modal.querySelector('[data-mpx-record-clear]');
+      const recordDirOut = modal.querySelector('[data-mpx-record-dir]');
+      // The folder is chosen, never typed: the host's own picker returns a real path.
+      let draftRecordDir = '';
+      const recordDirDefault = L('Default: the harness home, in canvas-recordings.', '默认：harness home 下的 canvas-recordings。');
+      function renderRecordDir() {
+        recordDirOut.textContent = draftRecordDir || recordDirDefault;
+      }
+      recordPickBtn.addEventListener('click', async () => {
+        const picker = controller.ctx && controller.ctx.uiWorkspace;
+        if (!picker || typeof picker.pickDirectory !== 'function') {
+          panelNotice(bodyEl, L('This host has no folder picker; recordings go to the harness home.', '这个宿主没有目录选择器，录制会落到默认目录。'));
+          return;
+        }
+        try {
+          const picked = await picker.pickDirectory();
+          if (typeof picked === 'string' && picked) {
+            draftRecordDir = picked;
+            renderRecordDir();
+          }
+        } catch (_error) {
+          panelNotice(bodyEl, L('Could not open the folder picker.', '打开目录选择器失败。'));
+        }
+      });
+      recordClearBtn.addEventListener('click', () => {
+        draftRecordDir = '';
+        renderRecordDir();
+      });
       const applyBtn = modal.querySelector('[data-mpx-apply]');
       const cancelBtn = modal.querySelector('[data-mpx-cancel]');
 
@@ -875,7 +904,8 @@ __MPX_VENDOR__
         strokesInput.value = String(settings.minStrokes);
         changeInput.value = String(settings.minPixelChange);
         cooldownInput.value = String(settings.cooldownSec);
-        recordDirInput.value = settings.recordDir || '';
+        draftRecordDir = settings.recordDir || '';
+        renderRecordDir();
         draftMode = settings.mode;
         refreshDraft();
         refreshMode();
@@ -961,7 +991,7 @@ __MPX_VENDOR__
           minStrokes: clampInt(strokesInput.value, 1, 50, DEFAULT_SETTINGS.minStrokes),
           minPixelChange: clampInt(changeInput.value, 0, 100, DEFAULT_SETTINGS.minPixelChange),
           cooldownSec: clampInt(cooldownInput.value, 0, 600, DEFAULT_SETTINGS.cooldownSec),
-          recordDir: String(recordDirInput.value || '').trim(),
+          recordDir: draftRecordDir,
         };
         controller.settings = next;
         saveSettings(next);
