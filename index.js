@@ -125,24 +125,19 @@ export const name = 'chubby-fish-studio'
 export const inject = ['webServer']
 
 const CANVAS_PROMPT = [
-  'The user has a pigment-mixing painting canvas: the 肥鱼画室 panel in the right sidebar.',
-  'You can see it and you can paint on it, through the same pigment pipeline the user paints with.',
-  'You have three ways to look, at three prices. `canvas_glance` returns the whole canvas as a thumbnail (cheapest: see where things are). `canvas_zoom` returns one rectangle of it, enlarged, named by two points in fractions of the canvas — `from [0.2, 0.3] to [0.45, 0.55]` — so you read them straight off a glance without converting pixels (a detail for the price of the crop). `canvas_look` returns the whole canvas at full size plus its pixel size and the current brush, palette, and colours (most expensive: use it when colour or exact edges matter, and before you advise on the painting).',
-  '- `canvas_state` returns the same facts without a picture; use it for cheap follow-ups. It is not a look: it never shows you the picture.',
-  '- `canvas_draw` paints one or more strokes onto the canvas. Points are canvas pixels by default, or 0-1 fractions of the canvas when the stroke sets `unit: "ratio"` (the same space you measure on a glance). Every stroke lands in the user undo stack, so the user can discard it.',
-  'You cannot paint blind: `canvas_draw` refuses strokes until you have looked at the whole canvas in this session, and refuses again if the canvas changed since that look (the user painted, undid, cleared, or the panel reloaded). After a refusal, look (a glance is enough), then draw. If a draw is refused, never retry it unchanged: look first.',
-  'Each stroke takes its own colour, size, strength (how much pigment), wetness (how far it bleeds), spacing (how densely the brush stamps), brushType, and optionally `usePressure`; the same tool also carries the `smudge` tool and the `undo`/`redo`/`clear` actions. `size` is the half-width for the wash and texture brushes (watercolor, dry, splatter), so those spread about twice the number, while circle, flat and soft paint about one `size` wide.',
-  'Keep one `canvas_draw` call to a handful of strokes (about eight). A call that is long or wide enough to be mangled costs the whole batch; several small calls paint in sequence and one failure costs only its own strokes. A stroke may send its path as the compact string `"0.36,0.60 0.37,0.65"` instead of nested arrays, which is sturdier for long paths.',
-  'Draw curves as curves: `path: "0.30,0.40 q 0.50,0.10 0.70,0.40"` is one arc (control point, then the end point), and `c` takes two controls; loose points are smoothed into a curve automatically, so a hair lock or a tail is three or four points, not a dense polyline. `taper: "out"` writes the pressure ramp for you — pressure narrows the mark and pales it at the same time, and only you can say whether that suits the shape.',
-  'A shape can be a shape, not a pile of rows: `ellipse: [cx, cy, rx, ry]` fills one in a single stroke with a smooth rim, `ring: true` outlines it, `from`/`to` angles make it an arc, and `polygon: [[x, y], …]` fills any outline you have painted around. `mirror: "x"` paints the stroke and its reflection about the canvas centre line, so a pair of eyes, ears or hair locks comes out symmetrical in one call.',
-  'Depth comes from strength and from painting the same area twice, not from wetness: at strength 20 a stroke is barely a stain, at 77 about 60% of the pigment lands, and only near 100 does the colour read as itself. Wetness governs how far the edge travels (100 bleeds openly, 20 keeps a tight edge), so lower it to sharpen a shape rather than to darken it — and for the watercolour brush, whose own default is wetness 100, a low value is a deliberate dry-and-patchy choice, not the way to get solid colour.',
-  'Choose the brush by the job, and set its parameters before the path: `watercolor` is the atmosphere brush — washes, mood, background, soft masses — at its own default strength 100 / wetness 100; `circle` and `soft` are the clean-shape brushes, solid and opaque, for anything that must read as itself; `flat` is flat blocks at strength 100 but draws like a pencil at a small size with `spacing` 1 and strength 75-90, which is the brush for line art and hatching; `splatter` sprays grain, and `dry` splits like a dry 毛笔 — forked bristles, coarse and rough, a texture you reach for rarely. Two things no setting changes: a watercolour white over dark stays grey however many passes it gets, and circle/flat/soft cannot make a wash. Call `canvas_brushes` once before choosing brushes for a new painting instead of guessing — it returns a labelled swatch sheet painted by this engine, plus the same table.',
-  'Build every shape first with full-pressure strokes, then decide where a point or a fade belongs: a water tendril, a fin tip, the tail of a line. On this engine low pressure lowers pigment deposit as well as width, so the same knob that narrows a stroke also pales it. What that costs you is a judgement call — 0.8 down to 0.35 still reads as a point, 0.95 down to 0.05 reads as a scratch, and a whole silhouette drawn with tapered strokes comes out pale and weak. Experiment on a corner of the canvas rather than assuming.',
-  'Pressure responds on a curve (pressureCurve): linear is even and slightly mechanical, soft eases in and out, firm holds the width and tapers late, ink thins early for a brush-like tail. Pick the curve before the numbers; a tendril usually reads best with soft from 0.85 to 0.3.',
-  'When the user asks for help with painting, look first, then name one concrete problem at a time and demonstrate with a single short stroke rather than a long description.',
-  'The panel may start a turn for you when it decides the painting changed enough. Treat such a turn as an invitation to look and say one useful sentence, not as a prompt to describe the whole canvas again.',
-  `There is a shared painting memory at ${NOTES_DIR} — a directory of Markdown notes earlier sessions wrote about exactly this pipeline. Load it progressively: \`canvas_notes\` with no arguments returns the index (one line per note, cheap), then \`action: "read", file: …\` returns just the note you need. Check the relevant note before a new painting, and append the line that would have saved you a repaint: one conclusion per line, and delete what is no longer true, because the whole directory has a hard size cap.`,
-  'If a canvas tool reports that no canvas is open, say so and suggest opening the 肥鱼画室 panel instead of guessing what is on it.',
+  'The user has a pigment-mixing painting canvas: the 肥鱼画室 panel in the right sidebar. You can see it and paint on it through the same pigment pipeline the user paints with.',
+  'Look at three prices: `canvas_glance` (the whole canvas as a thumbnail — placement and big shapes), `canvas_zoom` (one rectangle in canvas fractions, enlarged — a detail for the price of the crop), `canvas_look` (full size plus brush, palette and colours — when colour or an exact edge matters, or before advising on the painting). `canvas_state` gives the same facts without a picture and is not a look.',
+  'You cannot paint blind: `canvas_draw` refuses strokes until you have looked at the whole canvas this session, and again if the canvas has changed since that look (the user painted, undid, cleared, or the panel reloaded). After a refusal, look (a glance is enough), then draw — never retry it unchanged. Your own strokes do not invalidate the look.',
+  '`canvas_draw` paints strokes and also carries `smudge` plus the undo/redo/clear actions; every stroke lands in the user undo stack. A stroke takes colour, size, strength, wetness, spacing, brushType and optionally usePressure. Points are canvas pixels, or fractions of the canvas when every value is in 0-1. `size` is the half-width on the wash brushes (they spread about twice it) and about the full width on circle/flat/soft.',
+  'Keep a call to a handful of strokes, about eight: a long or wide call that gets mangled costs the whole batch, while small calls lose only their own. A path can be the compact string "0.36,0.60 0.37,0.65", sturdier for long paths, and curves are curves — "… q cx,cy x,y" is one arc.',
+  'Draw shapes as shapes, not piles of rows: `ellipse: [cx, cy, rx, ry]` (with `ring`, `from`/`to`, `seam`, `jitter`), `polygon`, and `mirror: "x"` for a symmetrical pair — that is how eyes, ears and hair locks come out even in one call.',
+  'Depth comes from strength and a second pass, not from wetness: 20 is barely a stain, 77 lands about 60% of the pigment, only near 100 does the colour read as itself. Wetness is how far the edge travels (100 bleeds, 20 holds), so lower it to sharpen a shape rather than to darken it — and a watercolor at low wetness goes patchy, not solid.',
+  'Choose the brush by the job: `watercolor` for atmosphere at strength 100 / wetness 100; `circle` and `soft` for clean opaque shapes; `flat` for blocks, or for pencil line art at a small size with `spacing` 1 and strength 75-90; `splatter` for grain; `dry` for a dry 毛笔, forked and coarse, rarely. No setting makes a watercolor white opaque over dark, and circle/flat/soft cannot make a wash. Call `canvas_brushes` once before choosing brushes instead of guessing — it returns the labelled swatch sheet and the same table.',
+  'Pressure narrows and pales at once, so a whole silhouette drawn with tapered strokes comes out weak: build the shape at full pressure, then place the points and the fades. Pick the pressureCurve (linear, soft, firm, ink) before the numbers; a tendril usually reads best with soft from 0.85 to 0.3.',
+  'When the user asks for help with painting, look first, name one concrete problem, and demonstrate with one short stroke instead of a long description.',
+  'The panel may start a turn when it decides the painting changed enough: treat that as an invitation to look and say one useful sentence, not to re-describe the canvas.',
+  `Shared painting memory at ${NOTES_DIR}: \`canvas_notes\` with no arguments returns the index (one line per note), \`action: "read", file: …\` returns one note. Read it before a new painting, and append the line that would have saved a repaint — one conclusion per line, delete what is no longer true, the directory has a hard size cap.`,
+  'If a canvas tool reports that no canvas is open, say so and suggest opening the 肥鱼画室 panel rather than guessing what is on it.',
 ].join(' ')
 
 const CARD_TEXT = {
@@ -743,7 +738,7 @@ export function apply(ctx) {
   ctx.inject(['tools'], (scope) => {
     scope.tools.register({
       name: 'canvas_look',
-      description: 'See the whole canvas at full size: the picture plus its pixel size, brush, palette and colours. The most expensive look — canvas_glance is the cheap thumbnail and canvas_zoom is one enlarged crop. Call it whenever the user refers to what they painted, and before advising on the painting; a glance is enough before drawing.',
+      description: 'See the whole canvas at full size (picture, pixel size, brush, palette, colours). The most expensive look: a glance or a zoom is cheaper. Use it when the user refers to what they painted, and before advising on the painting.',
       parameters: { type: 'object', additionalProperties: false, properties: {} },
       output: {
         schema: { type: 'object', additionalProperties: true },
@@ -807,7 +802,7 @@ export function apply(ctx) {
 
     scope.tools.register({
       name: 'canvas_glance',
-      description: 'Cheap look at the whole canvas: the panel shrinks it to a thumbnail, so you see placement and the big shapes for a fraction of the tokens canvas_look costs. It also counts as having looked, so you may draw afterwards. Follow it with canvas_zoom when a detail matters.',
+      description: 'Cheap look: the whole canvas as a thumbnail, so placement and big shapes cost a fraction of canvas_look. It also counts as having looked, so you may draw after it. Follow with canvas_zoom when a detail matters.',
       parameters: {
         type: 'object',
         additionalProperties: false,
@@ -857,7 +852,7 @@ export function apply(ctx) {
 
     scope.tools.register({
       name: 'canvas_zoom',
-      description: 'Look closely at one part of the canvas: the panel crops the rectangle between two points and returns it enlarged, so a detail costs tokens for the crop instead of the whole picture. The two points are fractions of the canvas (0 = left or top edge, 1 = right or bottom edge), so you can read them straight off a canvas_glance thumbnail without converting pixels, e.g. from [0.2, 0.3] to [0.45, 0.55]. Use it to check a face, an edge, or whether two colours actually meet.',
+      description: 'Look closely at one part of the canvas: one crop, enlarged, so a detail costs tokens for the crop instead of the whole picture. Both points are fractions of the canvas (0 = left or top edge), so they can be read straight off a glance: from [0.2, 0.3] to [0.45, 0.55].',
       parameters: {
         type: 'object',
         additionalProperties: false,
@@ -866,16 +861,16 @@ export function apply(ctx) {
           from: {
             type: 'array',
             items: { type: 'number' },
-            description: 'One corner of the region as fractions of the canvas width and height: [0.2, 0.3] means 20% across and 30% down. Measured on the whole canvas, so a coordinate read off the thumbnail divides by the thumbnail width or height; no need to convert to canvas pixels.',
+            description: 'One corner, as fractions of canvas width and height: [0.2, 0.3] is 20% across, 30% down.',
           },
           to: {
             type: 'array',
             items: { type: 'number' },
-            description: 'The opposite corner, in the same fractions. The crop is the rectangle these two points span, so either may be the top-left one.',
+            description: 'The opposite corner, same fractions; either may be the top-left one.',
           },
           maxWidth: {
             type: 'number',
-            description: 'Longest side of the returned picture in pixels, 240-1200. Defaults to 640; a bigger number enlarges more.',
+            description: 'Longest side of the returned picture, 240-1200; defaults to 640. Bigger costs more tokens, so ask for only as much as the detail needs.',
           },
         },
       },
@@ -958,7 +953,7 @@ export function apply(ctx) {
 
     scope.tools.register({
       name: 'canvas_brushes',
-      description: 'How each brush type paints: a labelled swatch sheet rendered by this canvas engine, plus one line per brush on what the mark is and how wide it reaches. Costs one image, needs no open canvas and paints nothing. Call it once before choosing brushes for a new painting, or when a brush comes out different from what you expected.',
+      description: 'How each brush paints: a labelled swatch sheet from this engine plus one line per brush on what the mark is. One image, needs no open canvas, paints nothing. Call it once before choosing brushes for a new painting.',
       parameters: { type: 'object', additionalProperties: false, properties: {} },
       output: {
         schema: { type: 'object', additionalProperties: true },
@@ -1049,7 +1044,7 @@ export function apply(ctx) {
 
     scope.tools.register({
       name: 'canvas_notes',
-      description: 'The shared painting memory: a directory of Markdown notes that earlier sessions wrote about this exact pipeline, so a new conversation inherits their experience. Load it progressively — call with no arguments for the index (one line per note, cheap), read only the note you need, and append the line that would have saved you a repaint. The directory has a hard size cap: when an append pushes it over, compress first (merge notes that say the same thing, drop conclusions that turned out wrong or stale) and write the shorter version back.',
+      description: 'Shared painting memory: Markdown notes earlier sessions wrote about this pipeline. Call with no arguments for the index, read only the note you need, append the line that would have saved a repaint. Hard size cap: when an append pushes it over, merge duplicates and drop stale conclusions first.',
       parameters: {
         type: 'object',
         additionalProperties: false,
@@ -1170,60 +1165,60 @@ export function apply(ctx) {
               properties: {
                 points: {
                   type: 'array',
-                  description: 'Path points; each is [x, y] or [x, y, pressure] with pressure 0-1. Canvas pixels, unless every coordinate is within 0-1 (then they are read as fractions of the canvas) or the stroke sets unit. Give either points or path.',
+                  description: 'Path points: [x, y] or [x, y, pressure 0-1]. Canvas pixels, or fractions of the canvas when every value is in 0-1. Give points or path.',
                   items: { type: 'array', items: { type: 'number' } },
                 },
                 path: {
                   type: 'string',
-                  description: 'The same path as one compact string, which is sturdier than nested arrays when a call is long: pairs separated by spaces, optional pressure after a colon, e.g. "0.36,0.60 0.37,0.65 0.40,0.70". A lone "q" or "c" makes the next two or three points a quadratic or cubic Bézier that starts at the point before it, e.g. "0.30,0.40 q 0.50,0.10 0.70,0.40" — one arc for four numbers instead of a dense polyline. Use instead of points.',
+                  description: 'The same path as one string, sturdier for long paths: "0.36,0.60 0.37,0.65", optional pressure after a colon. A lone q or c makes the next two or three points a Bézier: "0.30,0.40 q 0.50,0.10 0.70,0.40" is one arc.',
                 },
                 ellipse: {
                   type: 'array',
-                  description: 'Fill an ellipse instead of sweeping a path: [cx, cy, rx, ry], in the same units as points (fractions of the canvas unless something is over 1). The host expands it into one spiral, so the rim stays smooth instead of scalloped by row caps. Needs size, which sets the spiral pitch. Add ring: true (or an from/to angle) to outline instead.',
+                  description: 'Fill an ellipse instead of sweeping: [cx, cy, rx, ry] in the units of points. One smooth spiral, so the rim has no scallops; size sets the pitch. Add ring: true, or from/to, to outline instead.',
                 },
-                ring: { type: 'boolean', description: 'With ellipse: draw the outline instead of filling it. The size is then the line width.' },
-                from: { type: 'number', description: 'With ellipse: start angle in degrees (0 = right, clockwise). Giving from/to turns the ellipse into an arc; from 0 to 180 is the upper half.' },
+                ring: { type: 'boolean', description: 'With ellipse: outline it instead of filling; size is then the line width.' },
+                from: { type: 'number', description: 'With ellipse: start angle in degrees (0 = right, clockwise); with to it makes an arc.' },
                 to: { type: 'number', description: 'With ellipse: end angle in degrees.' },
                 polygon: {
                   type: 'array',
-                  description: 'Fill a polygon instead of sweeping a path: [[x, y], …] with at least three vertices, in the same units as points. The host cuts it into horizontal bands, one stroke each, so a dress or a cheek patch fills in one call instead of many rows.',
+                  description: 'Fill a polygon instead of sweeping: [[x, y], …], at least three vertices, units of points. Cut into horizontal bands, one stroke each.',
                 },
                 seam: {
                   type: 'number',
-                  description: 'With a filled ellipse: the angle in degrees (0 = right, clockwise) where the spiral\'s inner tail ends. The stroke already finishes inside the fill (it runs on along the rim, then tucks back in) so no cap sticks out of the contour; this only chooses where, if you care which side the hidden overlap sits on.',
+                  description: 'With a filled ellipse: the angle (degrees, 0 = right) where the spiral hides its inward tail. Cosmetic only.',
                 },
                 jitter: {
                   type: 'number',
-                  description: 'Pixels of random wobble added to a generated shape path (0-20). A spiral rim and parallel bands come out mechanically even; a little jitter restores the hand-made edge. Leave it off for a crisp anime line.',
+                  description: 'Pixels of wobble (0-20) on a generated shape path, to break a mechanically even rim. Leave it off for a crisp line.',
                 },
                 mirror: {
                   type: 'string',
                   enum: ['x', 'y'],
-                  description: 'Paint the stroke twice, the second time reflected about the canvas centre line: "x" flips it left-right, "y" up-down. Half the work for a symmetrical pair — eyes, ears, hair locks — and the two sides cannot drift apart.',
+                  description: 'Paint the stroke and its reflection about the canvas centre line — a symmetrical pair in one call.',
                 },
                 smooth: {
                   type: 'boolean',
-                  description: 'Round the points into a curve (Chaikin subdivision). On by default for three or more points, so a few loose points read as an arc rather than a zigzag; set false to keep a corner sharp. Paths that already use q or c are left alone.',
+                  description: 'Round the points into a curve (default for three or more); false keeps a corner. Paths with q or c are left alone.',
                 },
                 taper: {
                   type: 'string',
                   enum: ['in', 'out', 'both'],
-                  description: 'Write a pressure ramp for you: a soft fade from 1 to 0.3 across the last (or first) part of the path, with the soft curve. It narrows the mark and lowers its deposit together; whether that reads as a point, a fade or a mistake depends on the shape, so treat it as a tool to try rather than a rule.',
+                  description: 'Write a pressure ramp for you, 1 down to 0.3 on a soft curve. It narrows and pales together; try it rather than assuming.',
                 },
                 unit: {
                   type: 'string',
                   enum: ['pixels', 'ratio'],
-                  description: 'Optional, and usually unnecessary: coordinates with every value within 0-1 are read as fractions of the canvas automatically, anything larger as canvas pixels. Set "pixels" or "ratio" only to force it.',
+                  description: 'Force pixels or fractions; usually unnecessary, since values within 0-1 already read as fractions.',
                 },
-                usePressure: { type: 'boolean', description: 'Use the per-point pressures even when the panel pen-pressure switch is off. Pressure narrows the stroke and lowers pigment deposit at the same time, so the same value can read as a taper, a fade, or a thin pale line depending on the rest of the stroke — try it and look at what it gives.' },
-                pressureCurve: { type: 'string', description: 'Shape of the pressure response: linear (even), soft (smoothstep, gentle at both ends), firm (holds width then eases off late), or ink (gives way early). Try them; they change how a given pressure sequence reads.' },
-                color: { type: 'string', description: 'Hex colour such as #3355cc; defaults to the current foreground colour.' },
-                size: { type: 'number', description: 'How far the pigment spreads either side of the path, in canvas pixels: the mark ends up about twice this wide. Defaults to the current brush size.' },
-                strength: { type: 'number', description: 'Paint concentration 1-100 for this stroke; defaults to the panel slider. 100 lays solid pigment, 20 is mostly a stain.' },
-                wetness: { type: 'number', description: 'Paper wetness 0-100 for this stroke; defaults to the panel slider. 100 bleeds hard, 0 keeps the edge tight.' },
-                spacing: { type: 'number', description: 'Brush stamp spacing for this stroke, 1-100 percent of the brush size (the panel has the same slider); defaults to the panel setting. Tight spacing (1) with a small size is what makes the flat brush draw like a pencil.' },
-                brushType: { type: 'string', description: 'Brush texture: watercolor, dry, splatter, circle, soft or flat; defaults to the current brush.' },
-                tool: { type: 'string', enum: ['brush', 'smudge'], description: 'brush paints pigment (default); smudge pulls the existing colour along the path.' },
+                usePressure: { type: 'boolean', description: 'Use the per-point pressures even when the panel pen switch is off. Pressure narrows and pales together, so look at what it gives.' },
+                pressureCurve: { type: 'string', description: 'Pressure response: linear, soft, firm (holds width, tapers late) or ink (gives way early).' },
+                color: { type: 'string', description: 'Hex colour, e.g. #3355cc; defaults to the foreground colour.' },
+                size: { type: 'number', description: 'Canvas pixels. About twice this wide on the wash brushes, about this wide on circle/flat/soft; defaults to the brush size.' },
+                strength: { type: 'number', description: 'Pigment 1-100: 100 lays solid, 20 is a stain. Defaults to the panel slider.' },
+                wetness: { type: 'number', description: 'Edge bleed 0-100: 100 bleeds, 20 holds. Defaults to the panel slider.' },
+                spacing: { type: 'number', description: 'Stamp spacing 1-100 percent of the brush size; 1 with a small size is the pencil setting.' },
+                brushType: { type: 'string', description: 'watercolor, dry, splatter, circle, soft or flat; defaults to the current brush. See canvas_brushes.' },
+                tool: { type: 'string', enum: ['brush', 'smudge'], description: 'brush paints (default); smudge drags existing pigment along the path.' },
               },
             },
           },
