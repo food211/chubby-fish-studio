@@ -1027,11 +1027,28 @@ __MPX_VENDOR__
         CACHE = controller;
         controller.settings = loadSettings();
         controller.inbox = { strokes: 0, change: 0, lastTrigger: 0, busy: false };
-        // Any pointer or key activity in the panel is the user's: from then on a push is not
-        // the model's own paint, and the draw guard asks it for a fresh look again.
+        // Only a change the user makes to the picture itself invalidates a look: painting on
+        // the canvas, undo/redo/clear (button or Ctrl+Z). Picking a colour or dragging a size
+        // slider is part of painting together, not a reason to send the model back to look.
         controller.agentDirty = false;
-        controller.bodyEl.addEventListener('pointerdown', () => { controller.agentDirty = false; }, true);
-        controller.bodyEl.addEventListener('keydown', () => { controller.agentDirty = false; }, true);
+        controller.bodyEl.addEventListener('pointerdown', (event) => {
+          const canvasEl = controller.api.el;
+          const target = event.target;
+          if (canvasEl && target && (target === canvasEl || (typeof canvasEl.contains === 'function' && canvasEl.contains(target)))) {
+            controller.agentDirty = false;
+          }
+        }, true);
+        controller.bodyEl.addEventListener('click', (event) => {
+          const target = event.target;
+          if (target && typeof target.closest === 'function' && target.closest('#undoBtn, #redoBtn, #clearBtn')) {
+            controller.agentDirty = false;
+          }
+        }, true);
+        controller.bodyEl.addEventListener('keydown', (event) => {
+          if (event && (event.ctrlKey || event.metaKey) && String(event.key).toLowerCase() === 'z') {
+            controller.agentDirty = false;
+          }
+        }, true);
         // A settings-panel bug must never keep the canvas from starting.
         try {
           controller.settingsUi = buildSettingsUi(controller);
