@@ -318,19 +318,24 @@ function runFfmpeg(args) {
 }
 
 /**
- * Make a raw recording convenient to play: give it a duration index, then add an mp4 copy.
+ * Turn a raw recording into the formats the panel asked for.
  *
- * MediaRecorder writes a live webm with no duration: it plays, but cannot be scrubbed and
- * confuses editors. A stream copy fixes the index without touching a pixel, and the mp4
- * is what phones, WeChat and 剪映 accept.
+ * `both` (the default) keeps the webm and adds an mp4; `webm` leaves it alone; `mp4` and
+ * `gif` are export-only and drop the webm once the conversion worked. All of it needs
+ * ffmpeg on PATH — without it the webm is still a valid, playable file.
  * @param {string} file - the webm just written.
- * @returns {Promise<{ indexed: boolean, mp4: string | null }>} what is playable now.
+ * @param {string} format - both | webm | mp4 | gif.
+ * @returns {Promise<{ indexed: boolean, mp4: string | null, gif: string | null, needsFfmpeg: boolean }>}
  */
-async function polishRecording(file) {
-  if (!await ffmpegAvailable()) return { indexed: false, mp4: null }
+async function exportRecording(file, format) {
+  const mode = ['both', 'webm', 'mp4', 'gif'].includes(format) ? format : 'both'
+  if (!await ffmpegAvailable()) {
+    return { indexed: false, mp4: null, gif: null, needsFfmpeg: mode !== 'webm' }
+  }
+  // A stream copy fixes the missing duration index without touching a pixel.
   const temp = file.replace(/\.webm$/, '.indexed.webm')
-  const copied = await runFfmpeg(['-v', 'error', '-y', '-i', file, '-c', 'copy', temp])
   let indexed = false
+  const copied = await runFfmpeg(['-v', 'error', '-y', '-i', file, '-c', 'copy', temp])
   if (copied) {
     try {
       await rename(temp, file)
@@ -341,13 +346,34 @@ async function polishRecording(file) {
   } else {
     try { await unlink(temp) } catch { /* gone */ }
   }
-  const mp4 = file.replace(/\.webm$/, '.mp4')
-  const transcoded = await runFfmpeg([
-    '-v', 'error', '-y', '-i', file,
-    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-preset', 'veryfast', '-crf', '20',
-    '-movflags', '+faststart', mp4,
-  ])
-  return { indexed, mp4: transcoded ? mp4 : null }
+
+  let mp4 = null
+  if (mode === 'both' || mode === 'mp4') {
+    const target = file.replace(/\.webm$/, '.mp4')
+    const done = await runFfmpeg([
+      '-v', 'error', '-y', '-i', file,
+      '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-preset', 'veryfast', '-crf', '20',
+      '-movflags', '+faststart', target,
+    ])
+    if (done) mp4 = target
+  }
+
+  let gif = null
+  if (mode === 'gif') {
+    const target = file.replace(/\.webm$/, '.gif')
+    // Palette pass: one pass to build it, one to dither through it, or the colours band.
+    const done = await runFfmpeg([
+      '-v', 'error', '-y', '-i', file,
+      '-vf', 'fps=12,scale=680:-1:flags=lanczos,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=3',
+      '-loop', '0', target,
+    ])
+    if (done) gif = target
+  }
+
+  // An export-only choice should not leave the raw file behind as clutter.
+  if (mode === 'mp4' && mp4) { try { await unlink(file) } catch { /* gone */ } }
+  if (mode === 'gif' && gif) { try { await unlink(file) } catch { /* gone */ } }
+  return { indexed, mp4, gif, needsFfmpeg: false }
 }
 
 /**
@@ -2100,7 +2126,7 @@ export function apply(ctx) {
           const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
           const file = join(targetDir, `chubby-fish-${stamp}.webm`)
           await writeFile(file, bytes)
-          const polished = await polishRecording(file)
+          const polished = await exportRecording(file, typeof reply.recordFormat === 'string' ? reply.recordFormat : 'both')
           const seconds = Math.round((Number(reply.durationMs) || 0) / 1000)
           const frames = Number(reply.frames) || 0
           const lines = [
@@ -2108,7 +2134,10 @@ export function apply(ctx) {
             `${Math.round(bytes.length / 1024)} KB, ${frames} frames, about ${seconds}s of painting.`,
           ]
           if (polished.mp4) lines.push(`mp4 copy (plays anywhere, phones and editors included): ${polished.mp4}`)
-          if (!polished.indexed) {
+          if (polished.gif) lines.push(`gif (for READMEs and chat): ${polished.gif}`)
+          if (polished.needsFfmpeg) {
+            lines.push('This export format needs ffmpeg, which is not on this host: the clip was kept as webm. Install ffmpeg, or pick the webm format in the panel settings.')
+          } else if (!polished.indexed) {
             lines.push('No ffmpeg on this host, so the webm carries no duration index: it plays, but editors may show an unknown length. Fix it with: ffmpeg -i in.webm -c copy out.webm')
           }
           return { text: lines.join('\n') }

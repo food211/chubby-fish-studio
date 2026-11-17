@@ -11240,8 +11240,10 @@ return {
                 body: JSON.stringify(Object.assign({
                   sessionId: controller.sessionId,
                   id: op.id,
-                  // The folder is a panel setting; the host only learns it with the clip.
+                  // The folder and the export format are panel settings; the host only
+                  // learns them with the clip.
                   recordDir: (controller.settings && controller.settings.recordDir) || '',
+                  recordFormat: (controller.settings && controller.settings.recordFormat) || 'both',
                 }, reply)),
               }).catch(() => {});
               if (reply && reply.ok && op.action === 'stop') {
@@ -11392,7 +11394,7 @@ return {
     // ------------------------------------------- settings, look mode, and inbox
 
     const SETTINGS_KEY = 'mpx:settings:v1';
-    const DEFAULT_SETTINGS = { mode: 'manual', minStrokes: 3, minPixelChange: 6, cooldownSec: 45, recordDir: '' };
+    const DEFAULT_SETTINGS = { mode: 'manual', minStrokes: 3, minPixelChange: 6, cooldownSec: 45, recordDir: '', recordFormat: 'both' };
 
     function clampInt(value, min, max, fallback) {
       const number = Number(value);
@@ -11409,6 +11411,7 @@ return {
         merged.minPixelChange = clampInt(merged.minPixelChange, 0, 100, DEFAULT_SETTINGS.minPixelChange);
         merged.cooldownSec = clampInt(merged.cooldownSec, 0, 600, DEFAULT_SETTINGS.cooldownSec);
         merged.recordDir = typeof merged.recordDir === 'string' ? merged.recordDir.trim() : '';
+        merged.recordFormat = ['both', 'webm', 'mp4', 'gif'].includes(merged.recordFormat) ? merged.recordFormat : 'both';
         return merged;
       } catch (_error) {
         return Object.assign({}, DEFAULT_SETTINGS);
@@ -11654,6 +11657,13 @@ return {
           + `<button type="button" class="mpx-pick-btn" data-mpx-record-pick>${L('Choose folder…', '选择文件夹…')}</button>`
           + `<button type="button" class="mpx-pick-btn" data-mpx-record-clear>${L('Default', '用默认')}</button></div>`,
         '<p class="mpx-hint" data-mpx-record-dir></p>',
+        `<div class="mpx-field"><label>${L('Export format', '导出格式')}</label><div class="mpx-seg">`
+          + `<button type="button" data-mpx-format="both">webm + mp4</button>`
+          + `<button type="button" data-mpx-format="webm">webm</button>`
+          + `<button type="button" data-mpx-format="mp4">mp4</button>`
+          + `<button type="button" data-mpx-format="gif">gif</button>`
+          + '</div></div>',
+        `<p class="mpx-hint">${L('What a clip saved by the agent becomes. mp4 and gif need ffmpeg on the host; without it the webm is kept.', '模型录制完成后导出的格式。mp4 和 gif 需要宿主装有 ffmpeg，没有就只留 webm。')}</p>`,
         '<div class="mpx-divider"></div>',
         `<p class="mpx-section">${L('When the agent looks', '模型何时看画')}</p>`,
         `<div class="mpx-field"><label>${L('Mode', '模式')}</label><div class="mpx-seg">`
@@ -11729,6 +11739,20 @@ return {
         draftRecordDir = '';
         renderRecordDir();
       });
+
+      const formatButtons = [...modal.querySelectorAll('[data-mpx-format]')];
+      let draftFormat = 'both';
+      function refreshFormat() {
+        for (const option of formatButtons) {
+          option.setAttribute('aria-pressed', option.dataset.mpxFormat === draftFormat ? 'true' : 'false');
+        }
+      }
+      for (const option of formatButtons) {
+        option.addEventListener('click', () => {
+          draftFormat = option.dataset.mpxFormat;
+          refreshFormat();
+        });
+      }
       const applyBtn = modal.querySelector('[data-mpx-apply]');
       const cancelBtn = modal.querySelector('[data-mpx-cancel]');
 
@@ -11849,6 +11873,8 @@ return {
         cooldownInput.value = String(settings.cooldownSec);
         draftRecordDir = settings.recordDir || '';
         renderRecordDir();
+        draftFormat = settings.recordFormat || 'both';
+        refreshFormat();
         draftMode = settings.mode;
         refreshDraft();
         refreshMode();
@@ -11935,6 +11961,7 @@ return {
           minPixelChange: clampInt(changeInput.value, 0, 100, DEFAULT_SETTINGS.minPixelChange),
           cooldownSec: clampInt(cooldownInput.value, 0, 600, DEFAULT_SETTINGS.cooldownSec),
           recordDir: draftRecordDir,
+          recordFormat: draftFormat,
         };
         controller.settings = next;
         saveSettings(next);
