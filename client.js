@@ -10362,12 +10362,18 @@ function __mpxNormalizePoints(points) {
     return out;
 }
 
-function __mpxStampSpacing(size, brushType) {
+function __mpxStampSpacing(size, brushType, spacingOverride) {
     const baseSpacing = brushType === 'dry' ? size * 0.15
         : brushType === 'splatter' ? size * 0.3
         : size * 0.25;
-    const spacingRatio = brushType === 'watercolor' ? 0.35 : brushSpacingRatio;
     const sizeFalloff = brushType === 'watercolor' ? 20 / Math.max(20, size) : 1.0;
+    // An explicit spacing (the panel slider as a percentage, so 1% = 0.01) has to beat the
+    // automatic floor below: otherwise 1% on a small flat brush — the pencil setting — would
+    // be flattened onto the same 2.5px as 5% and the slider would do nothing.
+    if (Number.isFinite(spacingOverride)) {
+        return Math.max(1, baseSpacing * Math.max(0.001, Math.min(1, spacingOverride)) * sizeFalloff);
+    }
+    const spacingRatio = brushType === 'watercolor' ? 0.35 : brushSpacingRatio;
     const smallBrushFloor = Math.min(2.5, size * 0.3);
     return Math.max(1, Math.max(size * 0.05 * sizeFalloff, smallBrushFloor), baseSpacing * spacingRatio * sizeFalloff);
 }
@@ -10417,6 +10423,9 @@ async function __mpxStroke(points, options) {
         : foregroundColor;
     const size = Number.isFinite(Number(opts.size)) ? Math.max(1, Number(opts.size)) : brushSize;
     const brushType = typeof opts.brushType === 'string' ? opts.brushType : currentBrush.type;
+    // Optional per-stroke spacing, in percent of the brush size like the panel slider.
+    const spacingPercent = Number(opts.spacing);
+    const spacingOverride = Number.isFinite(spacingPercent) ? spacingPercent / 100 : undefined;
 
     const previousTool = currentTool;
     const previousSize = brushSize;
@@ -10439,7 +10448,18 @@ async function __mpxStroke(points, options) {
         if (typeof livePainter.setWetness === 'function') livePainter.setWetness(strokeWetness / 100);
     } catch (_error) {}
 
-    const spacing = __mpxStampSpacing(size, brushType);
+    let spacing = __mpxStampSpacing(size, brushType, spacingOverride);
+    // A long path at 1% would need tens of thousands of stamps and stall the panel for the
+    // best part of a minute; relax the spacing instead, so one stroke stays inside the
+    // frame budget. Short strokes — the ones the pencil setting is for — are untouched.
+    {
+        let length = 0;
+        for (let index = 1; index < path.length; index += 1) {
+            length += Math.hypot(path[index].x - path[index - 1].x, path[index].y - path[index - 1].y);
+        }
+        const MAX_STAMPS_PER_STROKE = 6000;
+        if (length > 0 && length / spacing > MAX_STAMPS_PER_STROKE) spacing = length / MAX_STAMPS_PER_STROKE;
+    }
     const first = path[0];
     let stamps = 0;
     // Pace the stamps across animation frames the way a hand stroke arrives: the wet
@@ -10811,6 +10831,44 @@ return {
       }
     }
 
+    /**
+     * Paint one picture out on demand: the whole canvas at `maxWidth`, or one crop of it.
+     *
+     * The whole-canvas push is capped at 900px so a glance at a small canvas would cost
+     * the same as a careful look; rendering here lets the host ask for a thumbnail, or
+     * for one region blown up, and pay tokens only for what it needs to see.
+     */
+    function renderDataUrl(controller, spec) {
+      try {
+        const canvas = controller.api.el;
+        const view = spec && typeof spec === 'object' ? spec : {};
+        const crop = view.crop && typeof view.crop === 'object' ? view.crop : null;
+        let sx = 0;
+        let sy = 0;
+        let sw = canvas.width;
+        let sh = canvas.height;
+        if (crop) {
+          sx = Math.max(0, Math.min(canvas.width - 1, Math.round(Number(crop.x) || 0)));
+          sy = Math.max(0, Math.min(canvas.height - 1, Math.round(Number(crop.y) || 0)));
+          sw = Math.max(1, Math.min(canvas.width - sx, Math.round(Number(crop.width) || canvas.width)));
+          sh = Math.max(1, Math.min(canvas.height - sy, Math.round(Number(crop.height) || canvas.height)));
+        }
+        const maxWidth = Math.max(64, Math.min(1400, Math.round(Number(view.maxWidth) || 900)));
+        const scale = Math.max(0.05, Math.min(4, maxWidth / Math.max(sw, sh)));
+        if (scale === 1 && !crop) return controller.api.snapshot('image/webp', 0.92);
+        const out = window.document.createElement('canvas');
+        out.width = Math.max(1, Math.round(sw * scale));
+        out.height = Math.max(1, Math.round(sh * scale));
+        const context = out.getContext('2d');
+        context.fillStyle = '#ffffff';
+        context.fillRect(0, 0, out.width, out.height);
+        context.drawImage(canvas, sx, sy, sw, sh, 0, 0, out.width, out.height);
+        return out.toDataURL('image/webp', 0.92);
+      } catch (_error) {
+        return null;
+      }
+    }
+
     function pushNow(controller, reason) {
       if (!controller.sessionId) return Promise.resolve(false);
       const dataUrl = snapshotDataUrl(controller);
@@ -10885,6 +10943,14 @@ return {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ sessionId: controller.sessionId, id: op.id }),
+              }).catch(() => {});
+            } else if (op.type === 'render') {
+              // Answer a glance or a zoom: the host decides the size, the panel renders it.
+              const png = renderDataUrl(controller, op);
+              await fetch('/mpx/canvas/render', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ sessionId: controller.sessionId, id: op.id, png }),
               }).catch(() => {});
             } else if (op.type === 'clear-records') {
               applied += 0;

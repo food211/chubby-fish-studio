@@ -237,12 +237,18 @@ function __mpxNormalizePoints(points) {
     return out;
 }
 
-function __mpxStampSpacing(size, brushType) {
+function __mpxStampSpacing(size, brushType, spacingOverride) {
     const baseSpacing = brushType === 'dry' ? size * 0.15
         : brushType === 'splatter' ? size * 0.3
         : size * 0.25;
-    const spacingRatio = brushType === 'watercolor' ? 0.35 : brushSpacingRatio;
     const sizeFalloff = brushType === 'watercolor' ? 20 / Math.max(20, size) : 1.0;
+    // An explicit spacing (the panel slider as a percentage, so 1% = 0.01) has to beat the
+    // automatic floor below: otherwise 1% on a small flat brush — the pencil setting — would
+    // be flattened onto the same 2.5px as 5% and the slider would do nothing.
+    if (Number.isFinite(spacingOverride)) {
+        return Math.max(1, baseSpacing * Math.max(0.001, Math.min(1, spacingOverride)) * sizeFalloff);
+    }
+    const spacingRatio = brushType === 'watercolor' ? 0.35 : brushSpacingRatio;
     const smallBrushFloor = Math.min(2.5, size * 0.3);
     return Math.max(1, Math.max(size * 0.05 * sizeFalloff, smallBrushFloor), baseSpacing * spacingRatio * sizeFalloff);
 }
@@ -292,6 +298,9 @@ async function __mpxStroke(points, options) {
         : foregroundColor;
     const size = Number.isFinite(Number(opts.size)) ? Math.max(1, Number(opts.size)) : brushSize;
     const brushType = typeof opts.brushType === 'string' ? opts.brushType : currentBrush.type;
+    // Optional per-stroke spacing, in percent of the brush size like the panel slider.
+    const spacingPercent = Number(opts.spacing);
+    const spacingOverride = Number.isFinite(spacingPercent) ? spacingPercent / 100 : undefined;
 
     const previousTool = currentTool;
     const previousSize = brushSize;
@@ -314,7 +323,18 @@ async function __mpxStroke(points, options) {
         if (typeof livePainter.setWetness === 'function') livePainter.setWetness(strokeWetness / 100);
     } catch (_error) {}
 
-    const spacing = __mpxStampSpacing(size, brushType);
+    let spacing = __mpxStampSpacing(size, brushType, spacingOverride);
+    // A long path at 1% would need tens of thousands of stamps and stall the panel for the
+    // best part of a minute; relax the spacing instead, so one stroke stays inside the
+    // frame budget. Short strokes — the ones the pencil setting is for — are untouched.
+    {
+        let length = 0;
+        for (let index = 1; index < path.length; index += 1) {
+            length += Math.hypot(path[index].x - path[index - 1].x, path[index].y - path[index - 1].y);
+        }
+        const MAX_STAMPS_PER_STROKE = 6000;
+        if (length > 0 && length / spacing > MAX_STAMPS_PER_STROKE) spacing = length / MAX_STAMPS_PER_STROKE;
+    }
     const first = path[0];
     let stamps = 0;
     // Pace the stamps across animation frames the way a hand stroke arrives: the wet
