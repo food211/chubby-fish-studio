@@ -30,7 +30,7 @@
 
 **右侧栏里一张你和 AI 共用的画布**：真实的颜料混色、真实的湿画扩散。你画，它看得见；它画，你随时撤销。
 
-MIT · v0.8.4 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件
+MIT · v0.8.8 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件
 
 ## 它是什么
 
