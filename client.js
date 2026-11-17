@@ -11670,17 +11670,22 @@ return {
       recordPickBtn.addEventListener('click', async () => {
         const picker = controller.ctx && controller.ctx.uiWorkspace;
         if (!picker || typeof picker.pickDirectory !== 'function') {
-          panelNotice(bodyEl, L('This host has no folder picker; recordings go to the harness home.', '这个宿主没有目录选择器，录制会落到默认目录。'));
+          // Say it in the row the click came from: a panel notice would sit behind this dialog.
+          recordDirOut.textContent = L(
+            'This host exposes no folder picker; recordings go to the harness home.',
+            '这个宿主没有可用的目录选择器，录制会落到默认目录。',
+          );
           return;
         }
         try {
+          recordDirOut.textContent = L('Opening the folder picker…', '正在打开目录选择器…');
           const picked = await picker.pickDirectory();
           if (typeof picked === 'string' && picked) {
             draftRecordDir = picked;
-            renderRecordDir();
           }
-        } catch (_error) {
-          panelNotice(bodyEl, L('Could not open the folder picker.', '打开目录选择器失败。'));
+          renderRecordDir();
+        } catch (error) {
+          recordDirOut.textContent = L('The folder picker failed: ', '目录选择器出错：') + String(error && error.message || error);
         }
       });
       recordClearBtn.addEventListener('click', () => {
@@ -12248,7 +12253,7 @@ return {
     // ------------------------------------------------------------------ plugin
 
     return {
-      inject: ['slots', 'sidebarRightTabs', 'sidebarRight'],
+      inject: ['slots', 'sidebarRightTabs', 'sidebarRight', 'uiWorkspace'],
       apply(ctx) {
         ctx.effect(() => ctx.sidebarRightTabs.register({
           id: TAB_ID,
