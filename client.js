@@ -10406,6 +10406,9 @@ function __mpxNextFrame() {
 async function __mpxStroke(points, options) {
     const livePainter = __mpxPainter();
     if (!livePainter) return { ok: false, reason: 'canvas-not-ready' };
+    // Tell the recorder the picture is about to change: a stroke is synchronous, so the
+    // scheduler never shows it as work in progress.
+    try { __mpxRecorder.poke(); } catch (_error) {}
     const opts = options || {};
     const path = __mpxNormalizePoints(points);
     if (!path.length) return { ok: false, reason: 'no-usable-points' };
@@ -10754,6 +10757,10 @@ const __mpxRecorder = (function () {
     let pausedMs = 0;
     let frameCount = 0;
     let resolveStop = null;
+    // Last time something was painted. An agent stroke is synchronous and does not keep
+    // a scheduler task alive, so the surface pokes this directly; otherwise a fast stroke
+    // would fall between ticks and the encoder would never be handed a frame.
+    let lastActivityAt = 0;
 
     function supported() {
         return !!(window.MediaRecorder && typeof mixCanvas.captureStream === 'function');
@@ -10796,24 +10803,34 @@ const __mpxRecorder = (function () {
 
     function tick() {
         if (phase !== 'recording' && phase !== 'paused') return;
-        if (!paintingNow()) {
-            if (phase === 'recording' && performance.now() - lastPaintAt >= IDLE_MS) {
+        const now = performance.now();
+        // A stroke pokes lastActivityAt; the scheduler's own tasks cover hand painting and
+        // the wet passes that keep running after a stroke.
+        const busy = paintingNow() || (now - lastActivityAt < IDLE_MS);
+        if (!busy) {
+            if (phase === 'recording' && now - lastPaintAt >= IDLE_MS) {
                 try { encoder.pause() } catch (_error) {}
                 phase = 'paused';
-                pausedSince = performance.now();
+                pausedSince = now;
             }
             return;
         }
         if (phase === 'paused') {
             try { encoder.resume() } catch (_error) {}
-            pausedMs += performance.now() - pausedSince;
+            pausedMs += now - pausedSince;
             phase = 'recording';
         }
-        lastPaintAt = performance.now();
+        lastPaintAt = now;
+        lastActivityAt = now;
         try {
             track.requestFrame();
             frameCount += 1;
         } catch (_error) {}
+    }
+
+    /** Tell the recorder that the picture just changed (called by the stroke surface). */
+    function poke() {
+        if (phase === 'recording' || phase === 'paused') lastActivityAt = performance.now();
     }
 
     function start() {
@@ -10835,6 +10852,7 @@ const __mpxRecorder = (function () {
             pausedMs = 0;
             startedAt = performance.now();
             lastPaintAt = startedAt;
+            lastActivityAt = startedAt;
             encoder.ondataavailable = (event) => {
                 if (event.data && event.data.size) chunks.push(event.data);
             };
@@ -10869,9 +10887,17 @@ const __mpxRecorder = (function () {
 
     function stop() {
         if (phase === 'idle' || phase === 'finishing') return Promise.resolve({ ok: false, reason: 'idle' });
+        const wasPaused = phase === 'paused';
         phase = 'finishing';
         return new Promise((resolve) => {
             resolveStop = resolve;
+            // A paused encoder has been handed nothing since it paused, and stopping it
+            // there can finalize an empty clip: wake it and push one last frame first.
+            try {
+                if (wasPaused) encoder.resume();
+                if (track) track.requestFrame();
+                frameCount += 1;
+            } catch (_error) {}
             try { encoder.requestData() } catch (_error) {}
             try {
                 encoder.stop();
@@ -10891,7 +10917,7 @@ const __mpxRecorder = (function () {
         };
     }
 
-    return { start: start, stop: stop, state: state };
+    return { start: start, stop: stop, state: state, poke: poke };
 })();
 
 return {
@@ -11127,6 +11153,12 @@ return {
       }
       const stopped = await recorder.stop();
       if (!stopped || !stopped.ok || !stopped.blob) return { ok: false, reason: 'nothing to save' };
+      if (!stopped.bytes) {
+        return {
+          ok: false,
+          reason: 'the encoder captured no frames (' + (stopped.frames || 0) + ' requests); keep the panel visible while painting',
+        };
+      }
       let data = '';
       try {
         data = await blobBase64(stopped.blob);

@@ -226,6 +226,12 @@ __MPX_VENDOR__
       }
       const stopped = await recorder.stop();
       if (!stopped || !stopped.ok || !stopped.blob) return { ok: false, reason: 'nothing to save' };
+      if (!stopped.bytes) {
+        return {
+          ok: false,
+          reason: 'the encoder captured no frames (' + (stopped.frames || 0) + ' requests); keep the panel visible while painting',
+        };
+      }
       let data = '';
       try {
         data = await blobBase64(stopped.blob);
