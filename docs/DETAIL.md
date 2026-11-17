@@ -23,6 +23,7 @@ This is the plugin detail page. Install steps live in the repository README.
 | `canvas_draw` | 多条笔触；每条可单独指定颜色、尺寸、**浓度**、**湿度**、**笔刷材质**、**压感曲线**，或用涂抹；另有 `undo` / `redo` / `clear` |
 | `canvas_sample` | 读画布**真实像素**（面板端 `readPixelByte`），用来判断"这块到底多深" |
 | `canvas_brushes` | **笔刷样张**：`docs/brushes.png`（引擎自己画的标注样张）+ 每种笔刷一行说明；不占画布、不需要打开面板 |
+| `canvas_guide` | **画法指南**：构图/配色/分层顺序/笔压/自检/重画时机；按需读，不塞进每次请求 |
 | `canvas_notes` | 共享画布记忆：多篇 Markdown，先索引再按篇读 |
 
 落笔走的是和手画完全相同的 `drawBrush` 管线；区别只在坐标系：agent 传的是画布像素坐标。

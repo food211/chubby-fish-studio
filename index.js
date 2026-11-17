@@ -133,6 +133,7 @@ const CANVAS_PROMPT = [
   'Draw shapes as shapes, not piles of rows: `ellipse: [cx, cy, rx, ry]` (with `ring`, `from`/`to`, `seam`, `jitter`), `polygon`, and `mirror: "x"` for a symmetrical pair — that is how eyes, ears and hair locks come out even in one call.',
   'Depth comes from strength and a second pass, not from wetness: 20 is barely a stain, 77 lands about 60% of the pigment, only near 100 does the colour read as itself. Wetness is how far the edge travels (100 bleeds, 20 holds), so lower it to sharpen a shape rather than to darken it — and a watercolor at low wetness goes patchy, not solid.',
   'Pick the brush by the job — `watercolor` for atmosphere, `circle`/`soft` for clean opaque shapes, `flat` for blocks or (small size, `spacing` 1, strength 75-90) for pencil lines, `splatter` for grain, `dry` rarely — and call `canvas_brushes` once for the settings and the swatch sheet instead of guessing. No setting turns a watercolor white opaque over dark, and circle/flat/soft cannot make a wash.',
+  'Call `canvas_guide` once before a new painting: it is the method — layers, stroke intent, judging, repainting.',
   'Pressure narrows and pales at once, so a silhouette drawn with tapered strokes comes out weak: build the shape at full pressure, then place the points and the fades. Pick the pressureCurve (linear, soft, firm, ink) before the numbers.',
   'When the user asks for help with painting, look first, name one concrete problem, and demonstrate with one short stroke instead of a long description.',
   'The panel may start a turn when it decides the painting changed enough: treat that as an invitation to look and say one useful sentence, not to re-describe the canvas.',
@@ -166,6 +167,41 @@ const BRUSH_GUIDE = [
   '| `smudge` (tool) | blending pigment that is already down | — | drags colour along the path |',
   '',
   'Job first, brush second: atmosphere → watercolor; a form that must stay crisp → circle or soft; line art and hatching → flat with a small size, `spacing` 1 and strength 75-90 (it then draws like a pencil); grain and sparkle → splatter; `dry` is the dry-brush 毛笔 for a split, coarse, gritty texture and it is rarely the right choice. Two things no setting changes: a watercolor white over dark stays grey however many passes it gets, and circle/flat/soft cannot make a wash. Width: circle/flat/soft paint about 1 x size, watercolor/dry/splatter about 2 x size.',
+].join('\n')
+
+/**
+ * How to paint a picture that reads.
+ *
+ * Served on demand by `canvas_guide` rather than sitting in every request: the method is
+ * read once per painting, and what a stroke can do is already in the schema. It exists
+ * because the tools alone teach mechanics, and mechanics without a method is how you end
+ * up with a well-drawn arm on a figure nobody recognises.
+ */
+const PAINT_GUIDE = [
+  '# How to paint something that reads',
+  '',
+  '## 1. Plan before the first stroke',
+  '- Fix the framing in canvas fractions: a character wants its head at roughly a third to a half of the height, a shadow or the feet near the bottom, and air on both sides. Write down the three or four anchor points before painting.',
+  '- Pick 4-6 colours and keep them: one mass colour (hair), one light (skin, white cloth), one dark (dress), one accent (gold, blush), one shadow tone. Everything else is one of those darker, lighter, or mixed.',
+  '- Name the shapes the picture is made of — hair ball, face oval, dress bell, two arms, tail — and where each sits. If you cannot name the shape, you cannot paint it.',
+  '',
+  '## 2. Back to front, mass to detail',
+  '- Layer order that always works: what sits behind the body (hair mass, long locks, the tail) → the body (dress, skirt, apron) → the face on top of the hair → the front (fringe, eyes, mouth, headdress, arms and hands, hem frills, shoes).',
+  '- Nothing is painted around: later strokes simply cover earlier ones. Lay the whole shape, then cover the part you do not want — do not try to leave holes.',
+  '- Inside one shape: mass at full strength first (circle or flat), then its silhouette, then the small details, highlights last.',
+  '',
+  '## 3. Every stroke carries intent',
+  '- Fills and silhouettes: full pressure, tight wetness, colour reads as itself.',
+  '- Anything that leaves the shape — hair tips, sleeves, fingers, a tail, an ankle — gets a pressure ramp or `taper`, so it narrows and lightens. That is the difference between a drawing and a pile of stickers.',
+  '- White is paper: nothing paints white over dark. Leave the paper unpainted, or repaint the region with an opaque brush.',
+  '',
+  '## 4. Judge it cheaply while painting',
+  '- A glance for placement, a zoom for one face or one edge. No full look between strokes.',
+  '- One problem per pass, named before the stroke: "the raised arm reads as a blob because the sleeve is thinner than the lock behind it". Then fix that one thing and look again.',
+  '- A shape that is wrong gets repainted, not patched: strokes added to a wrong shape inherit the mistake.',
+  '',
+  '## 5. Stop at coherent',
+  'A complete figure slightly off beats a perfect arm on a broken body. A viewer reads three things first: the silhouette, the eyes, and the largest colour mass. Get those three right and the picture reads; polish anything else only after that.',
 ].join('\n')
 
 /**
@@ -983,6 +1019,19 @@ export function apply(ctx) {
 
     /** The swatch sheet bytes, read once from the bundle. @type {Buffer | undefined} */
     let brushSheetBytes
+
+    scope.tools.register({
+      name: 'canvas_guide',
+      description: 'How to paint well on this canvas: framing and colour set, the layer order that always works, keeping every stroke intentional, judging cheaply, and when to repaint instead of patching. No canvas needed; read it once before a new painting.',
+      parameters: { type: 'object', additionalProperties: false, properties: {} },
+      output: {
+        schema: { type: 'object', additionalProperties: true },
+        render(_args, value) { return [{ type: 'text', text: value.text }] },
+      },
+      async execute() {
+        return { text: PAINT_GUIDE }
+      },
+    })
 
     scope.tools.register({
       name: 'canvas_brushes',
