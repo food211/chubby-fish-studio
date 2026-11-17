@@ -70,6 +70,7 @@ MIT · v0.8.4 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 | `canvas_draw` | 落笔：多条笔触，每条可单独指定颜色、尺寸、**浓度**、**湿度**、**笔刷材质**、**压感曲线**，或用涂抹；也能 `undo` / `redo` / `clear` | — |
 | `canvas_sample` | 读准确像素色值 | 一次几个点 |
 | `canvas_brushes` | **笔刷样张**：一张由本引擎自己画出来的标注样张 + 每种笔刷一行说明；不占画布、不需要打开面板 | 一张图，可按需调用 |
+| `canvas_tools` | **按需加载**：`canvas_guide` / `canvas_brushes` / `canvas_notes` / `canvas_sample` 这四个只在需要时才载入，平时不进请求的 schema | 一行 |
 | `canvas_guide` | **画法指南**：构图、配色、从后往前的分层顺序、笔压收笔、自检、何时该重画；纯文字 | 读一次 |
 | `canvas_notes` | 读写**画布记忆**：多篇 MD 的目录，先看索引再读某一篇 | 索引很省，按篇读 |
 

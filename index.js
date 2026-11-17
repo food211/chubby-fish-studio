@@ -132,8 +132,8 @@ const CANVAS_PROMPT = [
   'Keep a call to a handful of strokes, about eight: a long or wide call that gets mangled costs the whole batch, while small calls lose only their own. A path can be the compact string "0.36,0.60 0.37,0.65", sturdier for long paths, and curves are curves — "… q cx,cy x,y" is one arc.',
   'Draw shapes as shapes, not piles of rows: `ellipse: [cx, cy, rx, ry]` (with `ring`, `from`/`to`, `seam`, `jitter`), `polygon`, and `mirror: "x"` for a symmetrical pair — that is how eyes, ears and hair locks come out even in one call.',
   'Depth comes from strength and a second pass, not from wetness: 20 is barely a stain, 77 lands about 60% of the pigment, only near 100 does the colour read as itself. Wetness is how far the edge travels (100 bleeds, 20 holds), so lower it to sharpen a shape rather than to darken it — and a watercolor at low wetness goes patchy, not solid.',
-  'Pick the brush by the job — `watercolor` for atmosphere, `circle`/`soft` for clean opaque shapes, `flat` for blocks or (small size, `spacing` 1, strength 75-90) for pencil lines, `splatter` for grain, `dry` rarely — and call `canvas_brushes` once for the settings and the swatch sheet instead of guessing. No setting turns a watercolor white opaque over dark, and circle/flat/soft cannot make a wash.',
-  'Call `canvas_guide` once before a new painting: it is the method — layers, stroke intent, judging, repainting.',
+  'Pick the brush by the job — `watercolor` for atmosphere, `circle`/`soft` for clean opaque shapes, `flat` for blocks or (small size, `spacing` 1, strength 75-90) for pencil lines, `splatter` for grain, `dry` rarely — and load the brush sheet for the settings instead of guessing. No setting turns a watercolor white opaque over dark, and circle/flat/soft cannot make a wash.',
+  'Six tools are always available; four more (`canvas_guide`, `canvas_brushes`, `canvas_notes`, `canvas_sample`) load on demand so they do not cost every request — call `canvas_tools` with `load: "guide"` (or "brushes", "notes", "sample") and that tool is usable from your next step. Load the guide before a new painting: it is the method — layers, light, stroke intent, judging, when to repaint.',
   'Pressure narrows and pales at once, so a silhouette drawn with tapered strokes comes out weak: build the shape at full pressure, then place the points and the fades. Pick the pressureCurve (linear, soft, firm, ink) before the numbers.',
   'When the user asks for help with painting, look first, name one concrete problem, and demonstrate with one short stroke instead of a long description.',
   'The panel may start a turn when it decides the painting changed enough: treat that as an invitation to look and say one useful sentence, not to re-describe the canvas.',
@@ -145,6 +145,21 @@ const CARD_TEXT = {
   noSession: 'No agent session is attached to this call, so there is no canvas to read.',
   notOpen: 'No canvas is open for this session. Ask the user to open the 肥鱼画室 panel from the 画室 entry at the foot of the left sidebar, then try again.',
   noAttachments: 'This deployment has no attachment store, so the canvas image cannot be handed to the model. The canvas state is still available through canvas_state.',
+}
+
+/**
+ * The optional canvas tools, by group.
+ *
+ * DSH re-sends every visible tool schema on every request, so these four — which are read
+ * once per painting and never again — are registered with a `when` condition instead: their
+ * schemas and their execution stay out of the step until the model asks for the group
+ * through canvas_tools. Looking and painting are always available.
+ */
+const LAZY_TOOL_GROUPS = {
+  guide: 'canvas_guide',
+  brushes: 'canvas_brushes',
+  notes: 'canvas_notes',
+  sample: 'canvas_sample',
 }
 
 /** The swatch sheet that ships with the bundle, resolved next to this module. */
@@ -819,7 +834,94 @@ export function apply(ctx) {
     return { sessionId, entry, stale: Date.now() - entry.at > 120000 }
   }
 
+  /**
+   * Which optional tool groups this session has loaded.
+   *
+   * Kept per session in memory: a fresh conversation pays for the guide and the brush sheet
+   * again only if it needs them, which is the point.
+   * @type {Map<string, Set<string>>}
+   */
+  const loadedToolGroups = new Map()
+  /**
+   * @param {unknown} agent - the calling agent from a tool execution or a step condition.
+   * @returns {string} its session id, or ''.
+   */
+  const toolSessionKey = (agent) => {
+    try {
+      return String((agent && typeof agent === 'object' ? agent.session?.id : '') || '')
+    } catch {
+      return ''
+    }
+  }
+  /**
+   * @param {unknown} agent - the calling agent.
+   * @param {string} group - one of LAZY_TOOL_GROUPS.
+   * @returns {boolean} whether the group's tool is visible to this agent.
+   */
+  const toolGroupLoaded = (agent, group) => {
+    const key = toolSessionKey(agent)
+    return Boolean(key) && Boolean(loadedToolGroups.get(key)?.has(group))
+  }
+  /**
+   * @param {unknown} agent - the calling agent.
+   * @param {string} group - one of LAZY_TOOL_GROUPS.
+   * @returns {boolean} whether the load was recorded.
+   */
+  const loadToolGroup = (agent, group) => {
+    const key = toolSessionKey(agent)
+    if (!key) return false
+    let set = loadedToolGroups.get(key)
+    if (!set) {
+      set = new Set()
+      loadedToolGroups.set(key, set)
+    }
+    set.add(group)
+    return true
+  }
+  /**
+   * A `when` condition for one lazy group. A throwing condition fails step preparation, so
+   * this keeps every path total and returns false when anything is missing.
+   * @param {string} group - one of LAZY_TOOL_GROUPS.
+   * @returns {(context: { agent?: unknown }) => boolean} the condition.
+   */
+  const whenToolGroupLoaded = (group) => (context) => {
+    try {
+      return toolGroupLoaded(context?.agent, group)
+    } catch {
+      return false
+    }
+  }
+
   ctx.inject(['tools'], (scope) => {
+    scope.tools.register({
+      name: 'canvas_tools',
+      description: 'Load the optional canvas tools when you need them: "guide" (how to paint a picture that reads), "brushes" (labelled swatch sheet and one line per brush), "notes" (the shared painting memory), "sample" (exact pixel colours). A loaded tool is available from your next step, so load it the moment you need it. Looking and painting need no loading.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['load'],
+        properties: {
+          load: {
+            type: 'string',
+            enum: Object.keys(LAZY_TOOL_GROUPS),
+            description: 'Which group of optional tools to load.',
+          },
+        },
+      },
+      output: {
+        schema: { type: 'object', additionalProperties: true },
+        render(_args, value) { return [{ type: 'text', text: value.text }] },
+      },
+      async execute(args, exec) {
+        const group = typeof args?.load === 'string' ? args.load : ''
+        const toolName = LAZY_TOOL_GROUPS[group]
+        if (!toolName) {
+          return { text: `Load which group? ${Object.keys(LAZY_TOOL_GROUPS).map((key) => `"${key}"`).join(', ')}.` }
+        }
+        if (!loadToolGroup(exec?.agent, group)) return { text: CARD_TEXT.noSession }
+        return { text: `${toolName} is loaded; call it from your next step.` }
+      },
+    })
     scope.tools.register({
       name: 'canvas_look',
       description: 'See the whole canvas at full size (picture, pixel size, brush, palette, colours). The most expensive look: a glance or a zoom is cheaper. Use it when the user refers to what they painted, and before advising on the painting.',
@@ -1046,7 +1148,7 @@ export function apply(ctx) {
       async execute() {
         return { text: PAINT_GUIDE }
       },
-    })
+    }, { when: whenToolGroupLoaded('guide') })
 
     scope.tools.register({
       name: 'canvas_brushes',
@@ -1079,7 +1181,7 @@ export function apply(ctx) {
           return { text: `${text}\n\nThe swatch sheet could not be handed over (${String(error && error.message || error)}); the table above still holds.` }
         }
       },
-    })
+    }, { when: whenToolGroupLoaded('brushes') })
 
     /**
      * Make sure the notes directory exists and holds the seed notes.
@@ -1239,7 +1341,7 @@ export function apply(ctx) {
 
         return { text: `Unknown action "${action}".` }
       },
-    })
+    }, { when: whenToolGroupLoaded('notes') })
 
     scope.tools.register({
       name: 'canvas_draw',
@@ -1798,7 +1900,7 @@ export function apply(ctx) {
         const lines = colors.map((color) => `(${color.x}, ${color.y}) → ${color.hex} rgb(${color.rgb.join(', ')})`)
         return { text: `Canvas pixels:\n${lines.join('\n')}` }
       },
-    })
+    }, { when: whenToolGroupLoaded('sample') })
   })
 
   ctx.inject(['systemPrompt'], (scope) => {
