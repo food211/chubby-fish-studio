@@ -726,12 +726,15 @@ __MPX_VENDOR__
         `<p class="mpx-hint">${L('Canvas', '画布')} <b data-mpx-px></b> px</p>`,
         '<div class="mpx-divider"></div>',
         `<p class="mpx-section">${L('Recording folder', '录制保存目录')}</p>`,
-        `<div class="mpx-field"><label>${L('Save to', '保存到')}</label>`
+        `<div class="mpx-field mpx-field-col"><label>${L('Save to', '保存到')}</label>`
+          + `<div class="mpx-btn-row">`
           + `<button type="button" class="mpx-pick-btn" data-mpx-record-pick>${L('Choose folder…', '选择文件夹…')}</button>`
-          + `<button type="button" class="mpx-pick-btn" data-mpx-record-clear>${L('Default', '用默认')}</button></div>`,
+          + `<button type="button" class="mpx-pick-btn" data-mpx-record-clear>${L('Default', '用默认')}</button>`
+          + '</div></div>',
         '<p class="mpx-hint" data-mpx-record-dir></p>',
-        `<div class="mpx-field"><label>${L('Export format', '导出格式')}</label><div class="mpx-seg">`
-          + `<button type="button" data-mpx-format="both">webm + mp4</button>`
+        `<div class="mpx-field mpx-field-col"><label>${L('Export format', '导出格式')}</label>`
+          + '<div class="mpx-seg mpx-seg-formats">'
+          + `<button type="button" data-mpx-format="both">webm+mp4</button>`
           + `<button type="button" data-mpx-format="webm">webm</button>`
           + `<button type="button" data-mpx-format="mp4">mp4</button>`
           + `<button type="button" data-mpx-format="gif">gif</button>`

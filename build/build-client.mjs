@@ -1070,7 +1070,21 @@ const OVERRIDES = `
 }
 .mpx-divider { height: 1px; margin: 4px 0; background: var(--border, #41454a); }
 .mpx-field { display: flex; align-items: center; gap: 10px; }
-.mpx-field > label { flex: 1 1 auto; font-size: 12px; color: var(--muted, #a5aab0); }
+.mpx-field > label { flex: 1 1 auto; font-size: 12px; color: var(--muted, #a5aab0); white-space: nowrap; }
+/* Rows whose control is wide (a picker, four format buttons) stack instead of squeezing
+   the label into two lines inside a narrow panel. */
+.mpx-field-col { flex-direction: column; align-items: stretch; gap: 6px; }
+.mpx-btn-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.mpx-btn-row .mpx-pick-btn { margin-left: 0; }
+.mpx-seg-formats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+.mpx-seg-formats button {
+    padding: 0 4px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 11px;
+}
 .mpx-field input[type="number"] {
     width: 74px;
     padding: 4px 6px;
