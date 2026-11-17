@@ -139,8 +139,10 @@ const CANVAS_PROMPT = [
   'Keep a call to a handful of strokes, about eight: a long or wide call that gets mangled costs the whole batch, while small calls lose only their own. A path can be the compact string "0.36,0.60 0.37,0.65", sturdier for long paths, and curves are curves — "… q cx,cy x,y" is one arc.',
   'Draw shapes as shapes, not piles of rows: `ellipse: [cx, cy, rx, ry]` (with `ring`, `from`/`to`, `seam`, `jitter`), `polygon`, and `mirror: "x"` for a symmetrical pair — that is how eyes, ears and hair locks come out even in one call.',
   'Depth comes from strength and a second pass, not from wetness: 20 is barely a stain, 77 lands about 60% of the pigment, only near 100 does the colour read as itself. Wetness is how far the edge travels (100 bleeds, 20 holds), so lower it to sharpen a shape rather than to darken it — and a watercolor at low wetness goes patchy, not solid.',
+  'The drip run-off is a separate knob from wetness: per stroke `drip: "off"` suppresses it, `"on"` forces it, `"auto"` leaves it to the device and the panel toggle, and `dripAmount` 0-2 (1 is the default) sets how often drops spawn and how many are allowed at once. Drops only form at wetness 50 or more, on a `watercolor` stroke — so push wetness up first, then season with dripAmount rather than flooding the picture.',
   'Pick the brush by the job — `watercolor` for atmosphere, `circle`/`soft` for clean opaque shapes, `flat` for blocks or (small size, `spacing` 1, strength 75-90) for pencil lines, `splatter` for grain, `dry` rarely — and load the brush sheet for the settings instead of guessing. No setting turns a watercolor white opaque over dark, and circle/flat/soft cannot make a wash.',
-  'Six tools are always available; four more (`canvas_guide`, `canvas_brushes`, `canvas_notes`, `canvas_sample`) load on demand so they do not cost every request — call `canvas_tools` with `load: "guide"` (or "brushes", "notes", "sample") and that tool is usable from your next step. Load the guide before a new painting: it is the method — layers, light, stroke intent, judging, when to repaint.',
+  'Seven tools are always available; four more (`canvas_guide`, `canvas_brushes`, `canvas_notes`, `canvas_sample`) load on demand so they do not cost every request — call `canvas_tools` with `load: "guide"` (or "brushes", "notes", "sample") and that tool is usable from your next step. Load the guide before a new painting: it is the method — layers, light, stroke intent, judging, when to repaint.',
+  '`canvas_record` films the drawing as a webm: `start` before the strokes, `stop` after, and the clip lands under the harness home with its path returned. It reads the canvas stream, not the undo stack, so it captures the whole painting and not the last 50 frames; the panel has to be open.',
   'Pressure narrows and pales at once, so a silhouette drawn with tapered strokes comes out weak: build the shape at full pressure, then place the points and the fades. Pick the pressureCurve (linear, soft, firm, ink) before the numbers.',
   'When the user asks for help with painting, look first, name one concrete problem, and demonstrate with one short stroke instead of a long description.',
   'The panel may start a turn when it decides the painting changed enough: treat that as an invitation to look and say one useful sentence, not to re-describe the canvas.',
@@ -187,6 +189,8 @@ const BRUSH_GUIDE = [
   '| `dry` | a dry brush 毛笔: split, forking bristles, deliberately rough — a rare texture, not a workhorse | strength 100, low wetness | broken hairs with white gaps |',
   '| `splatter` | texture: spray, speckle, dust | strength 100 | dots, no solid core |',
   '| `smudge` (tool) | blending pigment that is already down | — | drags colour along the path |',
+  '',
+  'The drip run-off is its own switch, not a wetness value: `drip: "on" | "off" | "auto"` per stroke, and `dripAmount` 0-2 for how eagerly drops spawn and how many may run at once. It needs `watercolor` at wetness 50 or more; below that nothing spawns whatever the switch says.',
   '',
   'Job first, brush second: atmosphere → watercolor; a form that must stay crisp → circle or soft; line art and hatching → flat with a small size, `spacing` 1 and strength 75-90 (it then draws like a pencil); grain and sparkle → splatter; `dry` is the dry-brush 毛笔 for a split, coarse, gritty texture and it is rarely the right choice. Two things no setting changes: a watercolor white over dark stays grey however many passes it gets, and circle/flat/soft cannot make a wash. Width: circle/flat/soft paint about 1 x size, watercolor/dry/splatter about 2 x size.',
 ].join('\n')
@@ -1450,6 +1454,15 @@ export function apply(ctx) {
                 size: { type: 'number', description: 'Canvas pixels. About twice this wide on the wash brushes, about this wide on circle/flat/soft; defaults to the brush size.' },
                 strength: { type: 'number', description: 'Pigment 1-100: 100 lays solid, 20 is a stain. Defaults to the panel slider.' },
                 wetness: { type: 'number', description: 'Edge bleed 0-100: 100 bleeds, 20 holds. Defaults to the panel slider.' },
+          drip: {
+            type: 'string',
+            enum: ['auto', 'on', 'off'],
+            description: 'Watercolour run-off for this stroke: "on" forces drips, "off" suppresses them, "auto" leaves it to the device profile and the panel toggle. Drops only form at wetness 50 or more, on a watercolor stroke.',
+          },
+          dripAmount: {
+            type: 'number',
+            description: 'Drip density 0-2, default 1: 2 spawns drops twice as often and allows twice as many at once, 0 disables them for this stroke.',
+          },
                 spacing: { type: 'number', description: 'Stamp spacing 1-100 percent of the brush size; 1 with a small size is the pencil setting.' },
                 brushType: { type: 'string', description: 'watercolor, dry, splatter, circle, soft or flat; defaults to the current brush. See canvas_brushes.' },
                 tool: { type: 'string', enum: ['brush', 'smudge'], description: 'brush paints (default); smudge drags existing pigment along the path.' },
@@ -1857,6 +1870,8 @@ export function apply(ctx) {
             usePressure: Boolean(taper) || Boolean(stroke?.usePressure) || points.some((point) => point.length > 2),
             pressureCurve: stroke?.pressureCurve || (taper ? 'soft' : undefined),
             brushType: stroke?.brushType,
+            drip: stroke?.drip,
+            dripAmount: stroke?.dripAmount,
           }))
         })
         if (ops.length > 400) {

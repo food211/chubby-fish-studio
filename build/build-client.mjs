@@ -31,10 +31,18 @@ const dataUri = (rel, mime = 'image/svg+xml') =>
 
 const problems = []
 function replaceOnce(text, find, replacement, label) {
-  const index = text.indexOf(find)
+  // Sources may arrive with CRLF endings; match either, and keep the file's own
+  // endings in the inserted text, so a patch never depends on how git delivered it.
+  let needle = find
+  let index = text.indexOf(needle)
+  if (index === -1 && find.includes('\n')) {
+    needle = find.replace(/\n/g, '\r\n')
+    index = text.indexOf(needle)
+  }
   if (index === -1) { problems.push(`missing patch target: ${label}`); return text }
-  if (text.indexOf(find, index + find.length) !== -1) problems.push(`ambiguous patch target: ${label}`)
-  return text.slice(0, index) + replacement + text.slice(index + find.length)
+  if (text.indexOf(needle, index + needle.length) !== -1) problems.push(`ambiguous patch target: ${label}`)
+  const insert = needle.includes('\r\n') ? replacement.replace(/\n/g, '\r\n') : replacement
+  return text.slice(0, index) + insert + text.slice(index + needle.length)
 }
 
 // ------------------------------------------------------------------ app shell
@@ -166,6 +174,54 @@ vendor = replaceOnce(
   "const savedEngine = 'km'; // DSH bundle ships the KM engine only",
   'force km engine',
 )
+// Drip run-off: the model gets a per-stroke mode and density, on top of the automatic
+// device-profile decision the app already makes.
+vendor = replaceOnce(
+  vendor,
+  `function _shouldRunDrip() {
+    if (!this._dripCapable) return false;
+    const pref = this._dripUserPref;
+    if (pref === false) return false;
+    return true;
+}`,
+  `function _shouldRunDrip() {
+    // DSH: a stroke may force the run-off on or off; 'auto' leaves the device profile
+    // and the panel toggle in charge.
+    const mode = this._mpxDripMode;
+    if (mode === 'off') return false;
+    if (mode === 'on') return true;
+    if (!this._dripCapable) return false;
+    const pref = this._dripUserPref;
+    if (pref === false) return false;
+    return true;
+}`,
+  'drip mode override',
+)
+vendor = replaceOnce(
+  vendor,
+  `    const spawnInterval = DRIP_SPAWN_INTERVAL_PX_BASE
+        + (DRIP_SPAWN_INTERVAL_PX_RANGE * (1 - wet));    // 湿度低 → 间隔更稀
+    if (this._dripSpawnAccumPx < spawnInterval) return;`,
+  `    // DSH: dripAmount > 1 spawns more often, < 1 more rarely, 0 never.
+    const dripAmount = (typeof this._mpxDripAmount === 'number' && this._mpxDripAmount >= 0)
+        ? this._mpxDripAmount : 1;
+    if (dripAmount <= 0) return;
+    const spawnInterval = (DRIP_SPAWN_INTERVAL_PX_BASE
+        + (DRIP_SPAWN_INTERVAL_PX_RANGE * (1 - wet))) / dripAmount;    // 湿度低 → 间隔更稀
+    if (this._dripSpawnAccumPx < spawnInterval) return;`,
+  'drip spawn density',
+)
+vendor = replaceOnce(
+  vendor,
+  `    const maxParticles = Math.round(
+        DRIP_MAX_PARTICLES_MIN + (DRIP_MAX_PARTICLES_MAX - DRIP_MAX_PARTICLES_MIN) * wet
+    );`,
+  `    const maxParticles = Math.round(
+        (DRIP_MAX_PARTICLES_MIN + (DRIP_MAX_PARTICLES_MAX - DRIP_MAX_PARTICLES_MIN) * wet) * dripAmount
+    );`,
+  'drip particle cap',
+)
+
 vendor = vendor.split('icons/save.svg').join(dataUri('icons/save.svg'))
 vendor = vendor.split('icons/eyedropper-cursor.svg').join(dataUri('icons/eyedropper-cursor.svg'))
 
@@ -201,6 +257,11 @@ function __mpxState() {
         history: {
             length: livePainter ? livePainter.getHistoryLength() : 0,
             step: livePainter ? livePainter.getHistoryStep() : 0,
+        },
+        drip: {
+            mode: livePainter && livePainter._mpxDripMode ? livePainter._mpxDripMode : 'auto',
+            amount: livePainter && Number.isFinite(livePainter._mpxDripAmount) ? livePainter._mpxDripAmount : 1,
+            capable: Boolean(livePainter && livePainter._dripCapable),
         },
     };
 }
@@ -318,7 +379,15 @@ async function __mpxStroke(points, options) {
     currentTool = mode;
     currentBrush.type = brushType;
     brushSize = size;
+    // Drip run-off: automatic by default (device profile + the panel toggle) and
+    // scaled by wetness. A stroke may override the mode and the density; both are put
+    // back afterwards so the panel keeps whatever the user chose.
+    const previousDripMode = livePainter._mpxDripMode;
+    const previousDripAmount = livePainter._mpxDripAmount;
     try {
+        if (opts.drip === 'on' || opts.drip === 'off' || opts.drip === 'auto') livePainter._mpxDripMode = opts.drip;
+        const dripAmount = Number(opts.dripAmount);
+        if (Number.isFinite(dripAmount)) livePainter._mpxDripAmount = Math.max(0, Math.min(2, dripAmount));
         livePainter.baseMixStrength = strokeStrength;
         if (typeof livePainter.setWetness === 'function') livePainter.setWetness(strokeWetness / 100);
     } catch (_error) {}
@@ -415,6 +484,7 @@ async function __mpxStroke(points, options) {
         currentBrush.type = previousBrushType;
         livePainter.baseMixStrength = previousMixStrength;
         try { if (typeof livePainter.setWetness === 'function') livePainter.setWetness(previousWetness / 100); } catch (_e) {}
+        try { livePainter._mpxDripMode = previousDripMode; livePainter._mpxDripAmount = previousDripAmount; } catch (_e) {}
         return { ok: false, reason: 'stroke-failed', message: String(error && error.message || error) };
     }
     currentTool = previousTool;
@@ -422,6 +492,7 @@ async function __mpxStroke(points, options) {
     currentBrush.type = previousBrushType;
     livePainter.baseMixStrength = previousMixStrength;
     try { if (typeof livePainter.setWetness === 'function') livePainter.setWetness(previousWetness / 100); } catch (_error) {}
+    try { livePainter._mpxDripMode = previousDripMode; livePainter._mpxDripAmount = previousDripAmount; } catch (_error) {}
     return {
         ok: true, stamps, color, size, brushType, tool: mode,
         frames: Math.ceil(stamps / batch),

@@ -6404,6 +6404,11 @@ function _initDripCapable() {
 }
 
 function _shouldRunDrip() {
+    // DSH: a stroke may force the run-off on or off; 'auto' leaves the device profile
+    // and the panel toggle in charge.
+    const mode = this._mpxDripMode;
+    if (mode === 'off') return false;
+    if (mode === 'on') return true;
     if (!this._dripCapable) return false;
     const pref = this._dripUserPref;
     if (pref === false) return false;
@@ -6434,8 +6439,12 @@ function _maybeSpawnDripParticles(x, y, brushSize, colorRGB) {
     }
     this._dripLastSpawnXY = { x, y };
 
-    const spawnInterval = DRIP_SPAWN_INTERVAL_PX_BASE
-        + (DRIP_SPAWN_INTERVAL_PX_RANGE * (1 - wet));    // 湿度低 → 间隔更稀
+    // DSH: dripAmount > 1 spawns more often, < 1 more rarely, 0 never.
+    const dripAmount = (typeof this._mpxDripAmount === 'number' && this._mpxDripAmount >= 0)
+        ? this._mpxDripAmount : 1;
+    if (dripAmount <= 0) return;
+    const spawnInterval = (DRIP_SPAWN_INTERVAL_PX_BASE
+        + (DRIP_SPAWN_INTERVAL_PX_RANGE * (1 - wet))) / dripAmount;    // 湿度低 → 间隔更稀
     if (this._dripSpawnAccumPx < spawnInterval) return;
     this._dripSpawnAccumPx = 0;
 
@@ -6458,7 +6467,7 @@ function _maybeSpawnDripParticles(x, y, brushSize, colorRGB) {
 
     // 限制活跃粒子总数（避免长笔触爆量）；上限随湿度浮动
     const maxParticles = Math.round(
-        DRIP_MAX_PARTICLES_MIN + (DRIP_MAX_PARTICLES_MAX - DRIP_MAX_PARTICLES_MIN) * wet
+        (DRIP_MAX_PARTICLES_MIN + (DRIP_MAX_PARTICLES_MAX - DRIP_MAX_PARTICLES_MIN) * wet) * dripAmount
     );
     if (this._dripParticles.length >= maxParticles) return;
 
@@ -10327,6 +10336,11 @@ function __mpxState() {
             length: livePainter ? livePainter.getHistoryLength() : 0,
             step: livePainter ? livePainter.getHistoryStep() : 0,
         },
+        drip: {
+            mode: livePainter && livePainter._mpxDripMode ? livePainter._mpxDripMode : 'auto',
+            amount: livePainter && Number.isFinite(livePainter._mpxDripAmount) ? livePainter._mpxDripAmount : 1,
+            capable: Boolean(livePainter && livePainter._dripCapable),
+        },
     };
 }
 
@@ -10443,7 +10457,15 @@ async function __mpxStroke(points, options) {
     currentTool = mode;
     currentBrush.type = brushType;
     brushSize = size;
+    // Drip run-off: automatic by default (device profile + the panel toggle) and
+    // scaled by wetness. A stroke may override the mode and the density; both are put
+    // back afterwards so the panel keeps whatever the user chose.
+    const previousDripMode = livePainter._mpxDripMode;
+    const previousDripAmount = livePainter._mpxDripAmount;
     try {
+        if (opts.drip === 'on' || opts.drip === 'off' || opts.drip === 'auto') livePainter._mpxDripMode = opts.drip;
+        const dripAmount = Number(opts.dripAmount);
+        if (Number.isFinite(dripAmount)) livePainter._mpxDripAmount = Math.max(0, Math.min(2, dripAmount));
         livePainter.baseMixStrength = strokeStrength;
         if (typeof livePainter.setWetness === 'function') livePainter.setWetness(strokeWetness / 100);
     } catch (_error) {}
@@ -10540,6 +10562,7 @@ async function __mpxStroke(points, options) {
         currentBrush.type = previousBrushType;
         livePainter.baseMixStrength = previousMixStrength;
         try { if (typeof livePainter.setWetness === 'function') livePainter.setWetness(previousWetness / 100); } catch (_e) {}
+        try { livePainter._mpxDripMode = previousDripMode; livePainter._mpxDripAmount = previousDripAmount; } catch (_e) {}
         return { ok: false, reason: 'stroke-failed', message: String(error && error.message || error) };
     }
     currentTool = previousTool;
@@ -10547,6 +10570,7 @@ async function __mpxStroke(points, options) {
     currentBrush.type = previousBrushType;
     livePainter.baseMixStrength = previousMixStrength;
     try { if (typeof livePainter.setWetness === 'function') livePainter.setWetness(previousWetness / 100); } catch (_error) {}
+    try { livePainter._mpxDripMode = previousDripMode; livePainter._mpxDripAmount = previousDripAmount; } catch (_error) {}
     return {
         ok: true, stamps, color, size, brushType, tool: mode,
         frames: Math.ceil(stamps / batch),
