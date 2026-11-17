@@ -11073,6 +11073,52 @@ return {
       }, typeof delay === 'number' ? delay : 700);
     }
 
+    /** Read a blob as base64, without the data-URL prefix. */
+    function blobBase64(blob) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const text = String(reader.result || '');
+          const comma = text.indexOf(',');
+          resolve(comma >= 0 ? text.slice(comma + 1) : '');
+        };
+        reader.onerror = () => reject(reader.error || new Error('read failed'));
+        reader.readAsDataURL(blob);
+      });
+    }
+
+    /**
+     * Drive the panel recorder on the agent's behalf.
+     *
+     * Same recorder the button uses; only the delivery differs — the agent's clip goes
+     * back to the host, which writes it next to the canvas state and returns a path.
+     */
+    async function runRecorderOp(controller, op) {
+      const recorder = controller.api.recorder;
+      if (!recorder) return { ok: false, reason: 'this panel build has no recorder' };
+      if (op.action === 'start') {
+        const started = recorder.start();
+        if (!started || !started.ok) return { ok: false, reason: (started && started.reason) || 'start failed' };
+        return { ok: true };
+      }
+      const stopped = await recorder.stop();
+      if (!stopped || !stopped.ok || !stopped.blob) return { ok: false, reason: 'nothing to save' };
+      let data = '';
+      try {
+        data = await blobBase64(stopped.blob);
+      } catch (_error) {
+        return { ok: false, reason: 'could not read the clip' };
+      }
+      return {
+        ok: true,
+        data,
+        mime: stopped.mime,
+        bytes: stopped.bytes,
+        frames: stopped.frames,
+        durationMs: stopped.durationMs,
+      };
+    }
+
     function applyOps(controller, payload) {
       const ops = payload && Array.isArray(payload.ops) ? payload.ops : [];
       if (!ops.length) return;
@@ -11128,6 +11174,18 @@ return {
                 headers: { 'content-type': 'application/json' },
                 body: JSON.stringify({ sessionId: controller.sessionId, id: op.id, png }),
               }).catch(() => {});
+            } else if (op.type === 'recorder') {
+              // The agent drives the same recorder the button uses; a stop ships the
+              // clip to the host, which writes it to disk and hands back a path.
+              const reply = await runRecorderOp(controller, op);
+              await fetch('/mpx/canvas/record', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(Object.assign({ sessionId: controller.sessionId, id: op.id }, reply)),
+              }).catch(() => {});
+              if (reply && reply.ok && op.action === 'stop') {
+                panelNotice(controller.bodyEl, L('The agent saved the recording', '模型已保存这次录制'));
+              }
             } else if (op.type === 'clear-records') {
               applied += 0;
             }

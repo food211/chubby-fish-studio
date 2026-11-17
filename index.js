@@ -18,6 +18,7 @@ const ASK_PATH = '/mpx/canvas/ask'
 const SAMPLE_PATH = '/mpx/canvas/sample'
 const DONE_PATH = '/mpx/canvas/done'
 const RENDER_PATH = '/mpx/canvas/render'
+const RECORD_PATH = '/mpx/canvas/record'
 const LAST_PATH = '/mpx/canvas/last'
 const DEBUG_PATH = '/mpx/canvas/debug'
 
@@ -33,6 +34,10 @@ const MAX_SNAPSHOT_CHARS = 4 * 1024 * 1024
 const MAX_MEMORY_SNAPSHOTS = 24
 /** How long a glance or a zoom waits for the panel to paint one out. */
 const RENDER_TIMEOUT_MS = 6000
+/** How long a stop waits for the panel to flush the encoder and upload the clip. */
+const RECORD_TIMEOUT_MS = 45000
+/** A recording upload is base64 inside JSON, so it needs more room than a snapshot. */
+const RECORD_BODY_BYTES = 96 * 1024 * 1024
 /** Pushes arriving this soon after the agent's own strokes are its own wet paint settling. */
 const OWN_DRAW_GRACE_MS = 2500
 /**
@@ -102,6 +107,8 @@ function resolveHarnessHome() {
 const HARNESS_HOME = resolveHarnessHome()
 const STATE_DIR = join(HARNESS_HOME, 'canvas-state')
 const NOTES_DIR = join(HARNESS_HOME, 'canvas-notes')
+/** Recorded drawing clips land here, one webm per recording. */
+const RECORD_DIR = join(HARNESS_HOME, 'canvas-recordings')
 /** Earlier builds wrote inside the profile; read from there once so nothing is lost. */
 const LEGACY_STATE_DIR = process.env.DSH_PROFILE_DIR
   ? join(process.env.DSH_PROFILE_DIR.trim(), 'canvas-state')
@@ -237,15 +244,16 @@ const PAINT_GUIDE = [
 /**
  * Read a request body up to a fixed bound.
  * @param {import('node:http').IncomingMessage} req - incoming request.
+ * @param {number} [limit] - byte cap; a recorded clip is far bigger than a snapshot.
  * @returns {Promise<Buffer>} the collected bytes.
  */
-function readBody(req) {
+function readBody(req, limit = MAX_BODY_BYTES) {
   return new Promise((resolve, reject) => {
     const chunks = []
     let total = 0
     req.on('data', (chunk) => {
       total += chunk.length
-      if (total > MAX_BODY_BYTES) {
+      if (total > limit) {
         reject(new Error('canvas snapshot exceeds the size limit'))
         req.destroy()
         return
@@ -298,6 +306,8 @@ export function apply(ctx) {
   const writeTimers = new Map()
   /** @type {Map<string, (payload: { png?: string }) => void>} */
   const pendingRenders = new Map()
+  /** @type {Map<string, (payload: unknown) => void>} */
+  const pendingRecords = new Map()
   /**
    * The picture each session's agent last looked at whole, as a content hash.
    *
@@ -672,6 +682,31 @@ export function apply(ctx) {
       json(res, 200, { ok: true, matched: Boolean(resolve) })
     },
   }), 'mixbox-palette: canvas render route')
+
+  /**
+   * Take a finished recording upload from the panel.
+   *
+   * The encoder runs in the browser, so the clip can only leave it as an upload; the
+   * waiting `canvas_record` call turns these bytes into a file and hands the model a path.
+   */
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'exact',
+    path: RECORD_PATH,
+    handler: async (req, res) => {
+      if (req.method !== 'POST') { json(res, 405, { ok: false, reason: 'method' }); return }
+      let payload
+      try {
+        payload = JSON.parse((await readBody(req, RECORD_BODY_BYTES)).toString('utf8'))
+      } catch {
+        json(res, 400, { ok: false, reason: 'bad-json' })
+        return
+      }
+      const id = typeof payload?.id === 'string' ? payload.id : ''
+      const resolve = id ? pendingRecords.get(id) : undefined
+      if (resolve) resolve(payload)
+      json(res, 200, { ok: true, matched: Boolean(resolve) })
+    },
+  }), 'mixbox-palette: canvas recording route')
 
   /**
    * Relay the user's own message about the painting, with the canvas attached.
@@ -1901,6 +1936,71 @@ export function apply(ctx) {
         return { text: `Canvas pixels:\n${lines.join('\n')}` }
       },
     }, { when: whenToolGroupLoaded('sample') })
+
+    scope.tools.register({
+      name: 'canvas_record',
+      description: 'Record the drawing process as a webm video, taken from the panel canvas stream rather than the undo stack (which keeps only ~50 frames and would replay a fragment). Start it before you paint, stop it when the painting is finished: the clip is written to <DSH_HOME>/canvas-recordings and the file path comes back. Frames are pulled only on ticks with real paint work and the encoder pauses while the picture is still, so idle time neither bloats the file nor the bitrate. The panel has to be open.',
+      parameters: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['action'],
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['start', 'stop'],
+            description: 'start begins a recording; stop ends it, saves the webm and returns its path.',
+          },
+        },
+      },
+      output: {
+        schema: { type: 'object', additionalProperties: true },
+        render(_args, value) { return [{ type: 'text', text: value.text }] },
+      },
+      async execute(args, exec) {
+        const sessionId = exec?.agent?.session?.id
+        if (!sessionId) return { text: CARD_TEXT.noSession }
+        const action = args?.action === 'stop' ? 'stop' : 'start'
+        const id = `record-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+        // A start answers straight away; a stop has to flush the encoder and upload
+        // the clip, which is one big base64 body.
+        const timeout = action === 'start' ? 8000 : RECORD_TIMEOUT_MS
+        const pending = new Promise((resolve) => {
+          const timer = setTimeout(() => { pendingRecords.delete(id); resolve(undefined) }, timeout)
+          pendingRecords.set(id, (payload) => { clearTimeout(timer); pendingRecords.delete(id); resolve(payload) })
+        })
+        if (!dispatch(sessionId, [{ type: 'recorder', action, id }])) {
+          pendingRecords.delete(id)
+          return { text: CARD_TEXT.notOpen }
+        }
+        const reply = await pending
+        if (!reply || typeof reply !== 'object') {
+          return { text: 'The panel did not answer in time. Keep the canvas panel open, and reload it after a bundle update.' }
+        }
+        if (!reply.ok) {
+          return { text: action === 'start'
+            ? `Could not start recording (${reply.reason ?? 'unknown'}). Reload the panel and try again.`
+            : `Nothing was recorded (${reply.reason ?? 'unknown'}).` }
+        }
+        if (action === 'start') {
+          return { text: 'Recording started. Paint, then call canvas_record stop to finish — the pause between strokes costs no frames.' }
+        }
+        const base64 = typeof reply.data === 'string' ? reply.data : ''
+        if (!base64) return { text: 'The panel returned an empty recording.' }
+        const bytes = Buffer.from(base64, 'base64')
+        if (!bytes.length) return { text: 'The panel returned an empty recording.' }
+        try {
+          await mkdir(RECORD_DIR, { recursive: true })
+          const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+          const file = join(RECORD_DIR, `chubby-fish-${stamp}.webm`)
+          await writeFile(file, bytes)
+          const seconds = Math.round((Number(reply.durationMs) || 0) / 1000)
+          const frames = Number(reply.frames) || 0
+          return { text: `Recording saved: ${file}\n${Math.round(bytes.length / 1024)} KB, ${frames} frames, about ${seconds}s of painting.` }
+        } catch (error) {
+          return { text: `Recording could not be written: ${String(error && error.message || error)}` }
+        }
+      },
+    })
   })
 
   ctx.inject(['systemPrompt'], (scope) => {
