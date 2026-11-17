@@ -146,7 +146,7 @@ const CANVAS_PROMPT = [
   '`canvas_record` films the drawing as a webm: `start` before the strokes, `stop` after, and the clip lands under the harness home with its path returned. It reads the canvas stream, not the undo stack, so it captures the whole painting and not the last 50 frames; the panel has to be open.',
   'Pressure narrows and pales at once, so a silhouette drawn with tapered strokes comes out weak: build the shape at full pressure, then place the points and the fades. Pick the pressureCurve (linear, soft, firm, ink) before the numbers.',
   'When the user asks for help with painting, look first, name one concrete problem, and demonstrate with one short stroke instead of a long description.',
-  'The panel may start a turn when it decides the painting changed enough: treat that as an invitation to look and say one useful sentence, not to re-describe the canvas.',
+  'The panel may start a turn when it decides the painting changed enough: treat that as an invitation to look and say one useful sentence, not to re-describe the canvas. Start with `canvas_glance` — the thumbnail is what that invitation is worth; only look closer on your own judgement when the thumbnail genuinely cannot answer the question.',
   `Shared painting memory at ${NOTES_DIR}: \`canvas_notes\` with no arguments returns the index (one line per note), \`action: "read", file: …\` returns one note. Read it before a new painting, and append the line that would have saved a repaint — one conclusion per line, delete what is no longer true, the directory has a hard size cap.`,
   'If a canvas tool reports that no canvas is open, say so and suggest opening the 肥鱼画室 panel rather than guessing what is on it.',
 ].join(' ')
@@ -639,9 +639,9 @@ export function apply(ctx) {
   /**
    * Wake the agent of one session to look at the canvas.
    *
-   * The panel decides when (its inbox threshold), this route only relays: the model
-   * is asked to call `canvas_look`, not handed pixels, so the look stays a normal
-   * tool call in the log.
+   * The panel decides when (its inbox threshold), this route only relays: the model is
+   * asked to glance first and only look closer on its own judgement, so a live-mode nudge
+   * costs a thumbnail instead of the full picture, and the look stays a normal tool call.
    */
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact',
@@ -662,7 +662,8 @@ export function apply(ctx) {
       const strokes = Number(stats.strokes) || 0
       const change = Number(stats.change) || 0
       const text = `画布有新内容：${strokes} 笔新笔触，画面变化约 ${change}%。`
-        + ' 调用 canvas_look 看一眼当前画面，然后用一两句话点评：指出一个具体问题，或肯定一个具体做法。'
+        + ' 先用 canvas_glance 瞟一眼（缩略图，最省）；只有缩略图上真的看不清、又需要判断细节时，才自己决定 canvas_zoom 或 canvas_look，不要默认直接整张看图。'
+        + ' 然后用一两句话点评：指出一个具体问题，或肯定一个具体做法。'
         + ' 不要复述你在这次对话里已经说过的内容；如果用户此刻不像是想要反馈，就只回一句最要紧的。'
       // `role` is not optional here: the request serializer reads it straight off
       // the message, so a role-less message reaches the provider as

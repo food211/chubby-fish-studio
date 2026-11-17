@@ -729,7 +729,7 @@ __MPX_VENDOR__
           + '<input type="number" data-mpx-change min="0" max="100" step="1"></div>',
         `<div class="mpx-field"><label>${L('Minimum gap (s)', '最短间隔 (秒)')}</label>`
           + '<input type="number" data-mpx-cooldown min="0" max="600" step="5"></div>',
-        `<p class="mpx-hint">${L('Brush events collect in an inbox; the agent is asked to look only when a threshold is met and the gap has passed. Apply per stroke: every stroke, or the pixel difference from the previous frame.', '画笔事件先进收件箱，达到任一阈值且过了冷却时间，才会让模型看一眼。像素差是按 64×64 降采样后与上一帧比较得出的。')}</p>`,
+        `<p class="mpx-hint">${L('Brush events collect in an inbox; the agent is asked to look only when a threshold is met and the gap has passed, and it is asked for a thumbnail first — a closer look is its own call. Apply per stroke: every stroke, or the pixel difference from the previous frame.', '画笔事件先进收件箱，达到任一阈值且过了冷却时间，才会让模型看一眼；看的时候先给缩略图（glance），要不要细看由模型自己决定。像素差是按 64×64 降采样后与上一帧比较得出的。')}</p>`,
         '</div>',
         `<p class="mpx-hint">${L('Applying resamples the painting and resets the undo history. The zoom above is unchanged.', '应用后会重新采样当前画面并重置撤销历史；上方缩放比例不受影响。')}</p>`,
         '<div class="mpx-actions">',
