@@ -735,7 +735,7 @@ __MPX_VENDOR__
       recordButton.className = 'mpx-record-btn';
       recordButton.setAttribute('data-mpx-record', '');
       recordButton.textContent = '';
-      recordButton.title = L('Record the drawing as a webm video', '把绘制过程录成 webm 视频');
+      recordButton.title = L('Record', '录制');
       pillHost.insertBefore(recordButton, pillHost.firstChild);
       pillHost.appendChild(pill);
 
@@ -1227,7 +1227,7 @@ __MPX_VENDOR__
         recordButton.setAttribute('data-phase', state.phase);
         recordButton.title = busy
           ? L('Stop and save (' + Math.round(state.elapsedMs / 1000) + 's)', '停止并保存（已录 ' + Math.round(state.elapsedMs / 1000) + ' 秒）')
-          : L('Record the drawing as a webm video', '把绘制过程录成 webm 视频');
+          : L('Record', '录制');
         recordButton.setAttribute('aria-label', recordButton.title);
       }
 

@@ -10742,6 +10742,8 @@ async function __mpxResizeTo(width) {
 const __mpxRecorder = (function () {
     const TASK_NAME = 'dsh-recorder';
     const IDLE_MS = 700;
+    /** How long the picture may stand still before that time is cut out of the clip. */
+    const STILL_MS = 200;
     const BITRATE = 3000000;
     const MIMES = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
 
@@ -10767,6 +10769,7 @@ const __mpxRecorder = (function () {
     let sigCanvas = null;
     let sigCtx = null;
     let lastSig = -1;
+    let lastChangeAt = 0;
     let skippedFrames = 0;
 
     function frameSignature() {
@@ -10843,6 +10846,19 @@ const __mpxRecorder = (function () {
             }
             return;
         }
+        const sig = frameSignature();
+        if (sig !== 0 && sig === lastSig) {
+            // The picture is standing still between two strokes. Pausing the encoder here
+            // is what removes that time from the clip: a paused recorder does not advance
+            // its timeline, so the replay runs at the speed of the work.
+            skippedFrames += 1;
+            if (phase === 'recording' && now - lastChangeAt >= STILL_MS) {
+                try { encoder.pause() } catch (_error) {}
+                phase = 'paused';
+                pausedSince = now;
+            }
+            return;
+        }
         if (phase === 'paused') {
             try { encoder.resume() } catch (_error) {}
             pausedMs += now - pausedSince;
@@ -10850,12 +10866,7 @@ const __mpxRecorder = (function () {
         }
         lastPaintAt = now;
         lastActivityAt = now;
-        const sig = frameSignature();
-        if (sig !== 0 && sig === lastSig) {
-            // Nothing moved on the canvas: the last frame already covers this moment.
-            skippedFrames += 1;
-            return;
-        }
+        lastChangeAt = now;
         lastSig = sig;
         try {
             track.requestFrame();
@@ -10886,6 +10897,7 @@ const __mpxRecorder = (function () {
             frameCount = 0;
             pausedMs = 0;
             lastSig = -1;
+            lastChangeAt = startedAt;
             skippedFrames = 0;
             startedAt = performance.now();
             lastPaintAt = startedAt;
@@ -11706,7 +11718,7 @@ return {
       recordButton.className = 'mpx-record-btn';
       recordButton.setAttribute('data-mpx-record', '');
       recordButton.textContent = '';
-      recordButton.title = L('Record the drawing as a webm video', '把绘制过程录成 webm 视频');
+      recordButton.title = L('Record', '录制');
       pillHost.insertBefore(recordButton, pillHost.firstChild);
       pillHost.appendChild(pill);
 
@@ -12198,7 +12210,7 @@ return {
         recordButton.setAttribute('data-phase', state.phase);
         recordButton.title = busy
           ? L('Stop and save (' + Math.round(state.elapsedMs / 1000) + 's)', '停止并保存（已录 ' + Math.round(state.elapsedMs / 1000) + ' 秒）')
-          : L('Record the drawing as a webm video', '把绘制过程录成 webm 视频');
+          : L('Record', '录制');
         recordButton.setAttribute('aria-label', recordButton.title);
       }
 
