@@ -1056,6 +1056,29 @@ const OVERRIDES = `
 }
 .mpx-ask-btn:hover { background: rgba(87, 156, 224, 0.28); }
 .mpx-ask-btn:active { background: rgba(87, 156, 224, 0.38); }
+/* Sits in the status row's own flow at its left end: the ask button is absolutely
+   centred over that row, so anything positioned near the middle lands on top of it. */
+.mpx-record-btn {
+    order: -1;
+    margin-right: 8px;
+    min-width: 26px;
+    height: 26px;
+    padding: 0 7px;
+    border-radius: 13px;
+    border: 1px solid rgba(224, 86, 63, 0.45);
+    background: rgba(224, 86, 63, 0.12);
+    color: var(--muted, #a5aab0);
+    font: inherit;
+    font-size: 12px;
+    line-height: 1;
+    white-space: nowrap;
+    cursor: pointer;
+}
+.mpx-record-btn:hover { background: rgba(224, 86, 63, 0.24); color: var(--text, #e8eaed); }
+.mpx-record-btn[data-recording="true"] {
+    color: #e0563f;
+    border-color: rgba(224, 86, 63, 0.8);
+}
 .mpx-ask-pop {
     position: absolute;
     z-index: 40;

@@ -609,13 +609,14 @@ __MPX_VENDOR__
 
       // Bypass recorder: captures the canvas while it is being painted, independent of
       // the undo stack (which keeps only ~50 frames and would replay a fragment).
+      // It sits in the row's own flow, not at the centred ask button's absolute seat.
       const recordButton = window.document.createElement('button');
       recordButton.type = 'button';
-      recordButton.className = 'mpx-ask-btn';
+      recordButton.className = 'mpx-record-btn';
       recordButton.setAttribute('data-mpx-record', '');
-      recordButton.textContent = L('● Record', '● 录制');
+      recordButton.textContent = '●';
       recordButton.title = L('Record the drawing as a webm video', '把绘制过程录成 webm 视频');
-      pillHost.appendChild(recordButton);
+      pillHost.insertBefore(recordButton, pillHost.firstChild);
       pillHost.appendChild(pill);
 
       const askPop = window.document.createElement('div');
@@ -1009,19 +1010,15 @@ __MPX_VENDOR__
       const recorder = api.recorder;
       let recordTimer = 0;
 
-      function recordLabel() {
-        const state = recorder.state();
-        if (state.phase === 'idle') return L('● Record', '● 录制');
-        if (state.phase === 'finishing') return L('… Saving', '… 生成中');
-        const seconds = Math.round(state.elapsedMs / 1000);
-        const head = state.phase === 'paused' ? L('■ Wait', '■ 等笔') : L('■ Stop', '■ 停止');
-        return head + ' ' + seconds + 's';
-      }
-
       function refreshRecord() {
-        const phase = recorder.state().phase;
-        recordButton.textContent = recordLabel();
-        recordButton.style.color = phase === 'idle' ? '' : '#e0563f';
+        const state = recorder.state();
+        const busy = state.phase !== 'idle';
+        recordButton.textContent = state.phase === 'finishing' ? '…' : (busy ? '■' : '●');
+        recordButton.setAttribute('data-recording', busy ? 'true' : 'false');
+        recordButton.style.color = busy ? '#e0563f' : '';
+        recordButton.title = busy
+          ? L('Stop and save ' + Math.round(state.elapsedMs / 1000) + 's', '停止并保存（已录 ' + Math.round(state.elapsedMs / 1000) + ' 秒）')
+          : L('Record the drawing as a webm video', '把绘制过程录成 webm 视频');
       }
 
       function saveRecording(blob) {
