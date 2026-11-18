@@ -1411,7 +1411,6 @@ __MPX_VENDOR__
 
       // ---- bypass recording: the panel's own button, and the surface the agent uses
       const recorder = api.recorder;
-      let recordTimer = 0;
 
       // Start / stop is announced over the painting itself: a corner notice is easy to
       // miss while watching the canvas.
@@ -1456,7 +1455,9 @@ __MPX_VENDOR__
       function refreshRecord() {
         const state = recorder.state();
         const busy = state.phase !== 'idle';
-        recordButton.textContent = '';
+        recordButton.disabled = state.phase === 'finishing';
+        recordButton.setAttribute('aria-pressed', String(busy));
+        recordButton.textContent = state.phase === 'finishing' ? t('… Saving') : '';
         recordButton.setAttribute('data-recording', busy ? 'true' : 'false');
         recordButton.setAttribute('data-phase', state.phase);
         recordButton.title = busy
@@ -1464,6 +1465,8 @@ __MPX_VENDOR__
           : t('Record');
         recordButton.setAttribute('aria-label', recordButton.title);
       }
+      api.el.addEventListener('mpx-record-state', refreshRecord);
+      refreshRecord();
 
       /** Last resort: hand the clip to the browser's download folder. */
       function downloadRecording(blob) {
@@ -1513,15 +1516,9 @@ __MPX_VENDOR__
             refreshRecord();
             return;
           }
-          window.clearInterval(recordTimer);
-          recordTimer = window.setInterval(refreshRecord, 500);
-          refreshRecord();
           showRecToast(t('● Recording'), 2000);
           return;
         }
-        window.clearInterval(recordTimer);
-        recordTimer = 0;
-        recordButton.textContent = t('… Saving');
         showRecToast(t('■ Saving the clip…'), 9000);
         const result = await recorder.stop();
         refreshRecord();

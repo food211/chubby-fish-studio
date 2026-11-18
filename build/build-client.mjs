@@ -700,6 +700,17 @@ const __mpxRecorder = (function () {
     let lastChangeAt = 0;
     let skippedFrames = 0;
 
+    // The shared recorder drives the panel indicator for both tool and button calls.
+    let lastUiUpdate = 0;
+    function notifyPanel() {
+        mixCanvas.dispatchEvent(new Event('mpx-record-state'));
+    }
+    function setPhase(next) {
+        phase = next;
+        lastUiUpdate = performance.now();
+        notifyPanel();
+    }
+
     function frameSignature() {
         try {
             if (!sigCanvas) {
@@ -763,14 +774,18 @@ const __mpxRecorder = (function () {
     function tick() {
         if (phase !== 'recording' && phase !== 'paused') return;
         const now = performance.now();
+        if (phase === 'recording' && now - lastUiUpdate >= 500) {
+            lastUiUpdate = now;
+            notifyPanel();
+        }
         // A stroke pokes lastActivityAt; the scheduler's own tasks cover hand painting and
         // the wet passes that keep running after a stroke.
         const busy = paintingNow() || (now - lastActivityAt < IDLE_MS);
         if (!busy) {
             if (phase === 'recording' && now - lastPaintAt >= IDLE_MS) {
                 try { encoder.pause() } catch (_error) {}
-                phase = 'paused';
                 pausedSince = now;
+                setPhase('paused');
             }
             return;
         }
@@ -782,15 +797,15 @@ const __mpxRecorder = (function () {
             skippedFrames += 1;
             if (phase === 'recording' && now - lastChangeAt >= STILL_MS) {
                 try { encoder.pause() } catch (_error) {}
-                phase = 'paused';
                 pausedSince = now;
+                setPhase('paused');
             }
             return;
         }
         if (phase === 'paused') {
             try { encoder.resume() } catch (_error) {}
             pausedMs += now - pausedSince;
-            phase = 'recording';
+            setPhase('recording');
         }
         lastPaintAt = now;
         lastActivityAt = now;
@@ -845,19 +860,19 @@ const __mpxRecorder = (function () {
                     durationMs: Math.max(0, performance.now() - startedAt - pausedMs),
                 };
                 chunks = [];
-                phase = 'idle';
+                setPhase('idle');
                 release();
                 const resolve = resolveStop;
                 resolveStop = null;
                 if (resolve) resolve(result);
             };
             encoder.start(1000);
-            phase = 'recording';
+            setPhase('recording');
             FrameScheduler.register(TASK_NAME, tick, 90);
             return { ok: true, mime: mime || 'video/webm' };
         } catch (error) {
             release();
-            phase = 'idle';
+            setPhase('idle');
             return { ok: false, reason: 'start-failed', message: String(error && error.message || error) };
         }
     }
@@ -865,7 +880,8 @@ const __mpxRecorder = (function () {
     function stop() {
         if (phase === 'idle' || phase === 'finishing') return Promise.resolve({ ok: false, reason: 'idle' });
         const wasPaused = phase === 'paused';
-        phase = 'finishing';
+        if (wasPaused) pausedMs += performance.now() - pausedSince;
+        setPhase('finishing');
         return new Promise((resolve) => {
             resolveStop = resolve;
             // A paused encoder has been handed nothing since it paused, and stopping it
@@ -879,6 +895,9 @@ const __mpxRecorder = (function () {
             try {
                 encoder.stop();
             } catch (_error) {
+                resolveStop = null;
+                release();
+                setPhase('idle');
                 resolve({ ok: false, reason: 'stop-failed' });
             }
         });
@@ -891,7 +910,7 @@ const __mpxRecorder = (function () {
             mime: mime || 'video/webm',
             frames: frameCount,
             skipped: skippedFrames,
-            elapsedMs: phase === 'idle' ? 0 : Math.max(0, performance.now() - startedAt - pausedMs),
+            elapsedMs: phase === 'idle' ? 0 : Math.max(0, (phase === 'paused' ? pausedSince : performance.now()) - startedAt - pausedMs),
         };
     }
 
