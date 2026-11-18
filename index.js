@@ -75,8 +75,10 @@ const clampIntoRange = (value, low, high) => (Number.isFinite(value) ? Math.min(
 import { createHash } from 'node:crypto'
 import { polygonFill } from './polygon-fill.js'
 import { spawn } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises'
-import { join, isAbsolute } from 'node:path'
+import { dirname, join, isAbsolute } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 // Retention for the on-disk snapshots. One file per session, overwritten in place, so
 // a painting never grows; only the number of sessions can grow, and that is capped.
@@ -189,21 +191,12 @@ const CANVAS_PROMPT = [
   'The user has a pigment-mixing painting canvas: the 肥鱼画室 panel in the right sidebar. You can see it and paint on it through the same pigment pipeline the user paints with.',
   'Look at three prices: `canvas_glance` (the whole canvas as a thumbnail — placement and big shapes), `canvas_zoom` (one rectangle in canvas fractions, enlarged — a detail for the price of the crop), `canvas_look` (full size plus brush, palette and colours — when colour or an exact edge matters, or before advising on the painting). `canvas_state` gives the same facts without a picture and is not a look.',
   'You cannot paint blind: `canvas_draw` refuses strokes until you have looked at the whole canvas this session, and again if the canvas has changed since that look (the user painted, undid, cleared, or the panel reloaded). After a refusal, look (a glance is enough), then draw — never retry it unchanged. Your own strokes and a confirmed clear let you continue painting directly.',
-  '`canvas_draw` paints strokes and also carries `smudge` plus the undo/redo/clear actions; every stroke lands in the user undo stack. Points are canvas pixels, or fractions of the canvas when every value is in 0-1 (a value a little outside — up to 1.25 — still reads as a fraction and is pulled back onto the edge). `size` is the half-width on the wash brushes (they spread about twice it) and about the full width on circle/flat/soft.',
-  'Out-of-range values are never silently wrong and never waste the call: numbers outside their range (strength 1-100, wetness 0-100, size 0.5-600, spacing 1-100, dripAmount 0-2) and coordinates beyond the canvas are clamped to the nearest legal value, and the reply lists what was corrected. An unreadable colour or an unknown brush name is dropped, not guessed.',
+  '`canvas_draw` paints strokes, and also carries `smudge` plus the undo/redo/clear actions; every stroke lands in the user undo stack. Points are canvas pixels, or fractions of the canvas when every value is in 0-1 (a value a little outside, up to 1.25, still reads as a fraction and is pulled back onto the edge). Out-of-range numbers and coordinates are clamped to the nearest legal value and the reply lists what was corrected, so a stroke still paints instead of failing.',
   'Keep a call to a handful of strokes, about eight: a long or wide call that gets mangled costs the whole batch, while small calls lose only their own. A path can be the compact string "0.36,0.60 0.37,0.65", sturdier for long paths, and curves are curves — "… q cx,cy x,y" is one arc.',
-  'canvas_mask can select a region for brush and smudge on the shared canvas. Its edge jitter is sampled once per selection; set jitter to 0 for precision.',
-  'When painting an illustration, aim for a hand-drawn feel that suits the subject. Direction, pressure and the rhythm of repeated marks can do as much as a little contour jitter.',
-  'For a large shape, sketching its sweep and silhouette first can help. See canvas_guide for the thumbnail check. Use `ellipse: [cx, cy, rx, ry]` for an oval, `polygon` for a filled outline, `path` with `fill: true` for a curved silhouette, and `mirror: "x"` for a symmetrical pair.',
-  'Depth comes from strength and a second pass, not from wetness: 20 is barely a stain, 77 lands about 60% of the pigment, only near 100 does the colour read as itself. Wetness is how far the edge travels (100 bleeds, 20 holds), so lower it to sharpen a shape rather than to darken it — and a watercolor at low wetness goes patchy, not solid.',
-  'The drip run-off is a separate knob from wetness: per stroke `drip: "off"` suppresses it, `"on"` forces it, `"auto"` leaves it to the device and the panel toggle, and `dripAmount` 0-2 (1 is the default) sets how often drops spawn and how many are allowed at once. Drops only form at wetness 50 or more, on a `watercolor` stroke — so push wetness up first, then season with dripAmount rather than flooding the picture. `dripAmount` is density, not reach: how far a drop runs is fixed by the brush size and the wetness, so for longer runs use a larger brush or wetter paint, not a bigger amount.',
-  'Possible brush choices include `watercolor` for atmosphere, `circle`/`soft` for clean opaque shapes, `flat` for blocks or (small size, `spacing` 1, strength 75-90) for pencil lines, `splatter` for grain, `dry` for broken bristle texture. Widths differ and catch people out: circle/flat/soft paint about 1×size, watercolor/dry/splatter about 2×size, and watercolor lays down roughly half the pigment. `canvas_brushes` paints the labelled sheet with example settings. No setting turns a watercolor white opaque over dark, and circle/flat/soft cannot make a wash.',
-  'Eight tools are always available; four more (`canvas_guide`, `canvas_brushes`, `canvas_notes`, `canvas_sample`) load on demand so they do not cost every request — call `canvas_tools` with `load: "guide"` (or "brushes", "notes", "sample") and that tool is usable from your next step. The guide offers suggestions — layers, light, stroke intent, judging, when to repaint.',
-  '`canvas_record` films the drawing as a webm: `start` before the strokes, `stop` after, and the clip lands under the harness home with its path returned. It reads the canvas stream, not the undo stack, so it captures the whole painting and not the last 50 frames; the panel has to be open.',
-  'Pressure narrows and pales at once, so a silhouette drawn with tapered strokes comes out weak: full pressure can help establish a solid shape, and a taper can add finer ends. The pressureCurve affects how quickly the mark narrows.',
+  'Brush widths catch people out: circle/flat/soft paint about 1x size, watercolor/dry/splatter about 2x size, and a watercolor lays down roughly half the pigment.',
+  '**Before a new painting, load the `canvas-studio` skill** (the `skill` tool): it is this studio\'s manual — the working rhythm, the craft, every stroke field and shape, recording and export, selection, the known traps, and the shared painting memory. A single touch-up stroke does not need it. Everything about the studio that is long lives there or in the reference pages it indexes; this prompt only carries the rules that must never be missed.',
   'When the user asks for help with painting, look first, name one concrete problem, and demonstrate with one short stroke instead of a long description.',
   'The panel may start a turn when it decides the painting changed enough: treat that as an invitation to look and say one useful sentence, not to re-describe the canvas. Start with `canvas_glance` — the thumbnail is what that invitation is worth; only look closer on your own judgement when the thumbnail genuinely cannot answer the question.',
-  `Shared painting memory at ${NOTES_DIR}: \`canvas_notes\` with no arguments returns the index (one line per note), \`action: "read", file: …\` returns one note. Read it before a new painting, and append the line that would have saved a repaint — one conclusion per line, delete what is no longer true, the directory has a hard size cap.`,
   'If a canvas tool reports that no canvas is open, say so and suggest opening the 肥鱼画室 panel rather than guessing what is on it.',
 ].join(' ')
 
@@ -222,7 +215,6 @@ const CARD_TEXT = {
  * through canvas_tools. Looking and painting are always available.
  */
 const LAZY_TOOL_GROUPS = {
-  guide: 'canvas_guide',
   brushes: 'canvas_brushes',
   notes: 'canvas_notes',
   sample: 'canvas_sample',
@@ -253,44 +245,27 @@ const BRUSH_GUIDE = [
 ].join('\n')
 
 /**
- * How to paint a picture that reads.
+ * The canvas usage manual, as a skill the model loads when it paints.
  *
- * Served on demand by `canvas_guide` rather than sitting in every request: the method is
- * read once per painting, and what a stroke can do is already in the schema. It exists
- * because the tools alone teach mechanics, and mechanics without a method is how you end
- * up with a well-drawn arm on a figure nobody recognises.
+ * Every long page about this studio — the craft, the tools, the stroke fields, recording,
+ * selection, the traps — lives in `skills/canvas-studio/`, and `SKILL.md` is the only
+ * index. Nothing here repeats it: the system prompt carries the rules that must never be
+ * missed, and points at the skill for everything else.
  */
-const PAINT_GUIDE = [
-  "# Painting on this canvas",
-  "",
-  "## Composition and large shapes",
-  "- A thumbnail can help you pick out the silhouette, the focal point and the largest colour masses. A few clearly separated values often carry a shape even in one hue.",
-  "- One way into a large shape is to mark its ends, widest point and changes of direction. Long curves or straight edges can connect those landmarks while preserving a distinctive corner or notch.",
-  "- A flat silhouette makes it easy to judge tilt, width and gaps. Filling inside that boundary can give a smoother contour than defining it with the ends of stacked horizontal strokes.",
-  "- Where surfaces turn, fold or overlap, a light mass and a shadow mass may be enough. An uninterrupted plane can work as a single colour.",
-  "",
-  "## Layers and light",
-  "- Working from distant shapes towards near ones makes overlaps easy. An underpainting can extend beneath later shapes; painting around a gap can preserve a sliver of paper or light.",
-  "- Choosing a main light direction can help relate highlights and shadows. A cast shadow can suggest contact with the ground or the height of a lifted object.",
-  "- A shadow can be painted as its own shape. Circle or flat gives a crisp edge; soft can lay down a gradual edge in the chosen shadow colour.",
-  "",
-  "## Choosing a mark",
-  "- Circle and flat can give opaque forms and crisp silhouettes. Small flat strokes with tight spacing (around 1) can suggest pencil lines or hatching.",
-  "- Soft has a solid core and a blurred rim. For a rounded cheek, a brush sized to the desired transition can lay in the shadow directly.",
-  "- Smudge (`tool: \"smudge\"`) works like a fingertip moving pigment already on the canvas. A short stroke across adjoining colours can mix them locally; a longer pull can leave a directional streak. Near a contour, a smaller footprint can keep its shape intact.",
-  "- Watercolor at high wetness can give a broad wash with a pooled edge. Dry can suggest broken fibres or stone, and splatter can suggest spray, grain or stars.",
-  "- Pressure and taper can give a hair tip or a fold a lighter ending. Even pressure can suit a firm silhouette or a deliberately uniform graphic line.",
-  "",
-  "- For a hand-drawn contour, a little jitter (about 0.5-1.5 canvas pixels on a long hair strand or garment edge) can help. A small eye highlight or a precise join may read better with zero jitter.",
-  "## A hand-drawn feel",
-  "- For a hand-drawn finish, you might let a long contour swell through a turn and ease off toward its tip. A quiet, steady edge beside a more expressive stroke gives both a purpose.",
-  "- Related marks can share a direction while varying slightly in length, spacing or pressure. For hair or folds, a few deliberate groups often read more naturally than evenly spaced parallel lines.",
-  "- A brush-textured or gently uneven silhouette can suit cloth, hair or leaves. A selection with a little edge jitter can carry that same character through several colour passes; the displayed edge stays fixed until the selection changes.",
-  "",
-  "## Checking the result",
-  "- A glance shows whether the masses read together. A zoom can help judge one edge, eye or colour transition.",
-  "- If an area feels busy, quieter detail, a narrower palette or a broader repaint may help. If the shape already reads at the intended scale, it may need no further marks.",
-].join('\n')
+const SKILL_NAME = 'canvas-studio'
+const SKILL_DIR = dirname(fileURLToPath(new URL('./skills/canvas-studio/SKILL.md', import.meta.url)))
+
+/**
+ * Read the manual once, at plugin start.
+ * @returns {string | undefined} the SKILL.md body, or undefined when the file is missing.
+ */
+function readStudioSkill() {
+  try {
+    return readFileSync(join(SKILL_DIR, 'SKILL.md'), 'utf8')
+  } catch {
+    return undefined
+  }
+}
 
 /**
  * Read a request body up to a fixed bound.
@@ -1305,7 +1280,7 @@ export function apply(ctx) {
   ctx.inject(['tools'], (scope) => {
     scope.tools.register({
       name: 'canvas_tools',
-      description: 'Load the optional canvas tools when you need them: "guide" (how to paint a picture that reads), "brushes" (labelled swatch sheet and one line per brush), "notes" (the shared painting memory), "sample" (exact pixel colours). A loaded tool is available from your next step, so load it the moment you need it. Looking and painting need no loading.',
+      description: 'Load the optional canvas tools when you need them: "brushes" (labelled swatch sheet and one line per brush), "notes" (the shared painting memory), "sample" (exact pixel colours). A loaded tool is available from your next step, so load it the moment you need it. Looking and painting need no loading.',
       parameters: {
         type: 'object',
         additionalProperties: false,
@@ -1600,19 +1575,6 @@ export function apply(ctx) {
 
     /** The swatch sheet bytes, read once from the bundle. @type {Buffer | undefined} */
     let brushSheetBytes
-
-    scope.tools.register({
-      name: 'canvas_guide',
-      description: 'A general method for painting here: what a viewer reads first, how to layer, and what each tool adds that the others cannot - soft brushes for gradual edges, watercolor for light and mood, pressure for stroke life - plus light, working rhythm and the usual failure modes. No canvas needed; it can be consulted when planning or revising a painting.',
-      parameters: { type: 'object', additionalProperties: false, properties: {} },
-      output: {
-        schema: { type: 'object', additionalProperties: true },
-        render(_args, value) { return [{ type: 'text', text: value.text }] },
-      },
-      async execute() {
-        return { text: PAINT_GUIDE }
-      },
-    }, { when: whenToolGroupLoaded('guide') })
 
     scope.tools.register({
       name: 'canvas_brushes',
@@ -2537,6 +2499,25 @@ export function apply(ctx) {
   ctx.inject(['systemPrompt'], (scope) => {
     scope.systemPrompt.section({ name: 'ui:mixbox-palette-canvas', order: 820, text: CANVAS_PROMPT })
   })
+
+  // The studio's manual is a skill, not a prompt section: SKILL.md is the only index and
+  // the long pages sit next to it, read only when a page is actually needed. The prompt
+  // keeps the rules that must never be missed and points here for everything else.
+  const studioSkill = readStudioSkill()
+  if (studioSkill) {
+    ctx.inject(['skills'], (scope) => {
+      scope.effect(() => scope.skills.register({
+        name: SKILL_NAME,
+        description: 'Work on the 肥鱼画室 pigment canvas: the rhythm of a painting, the craft, every stroke field and shape, recording and export, local selections, the known traps, and the shared painting memory. Load it before starting a new painting or recording the process; a single touch-up stroke does not need it.',
+        whenToUse: 'A new picture on the 肥鱼画室 canvas, recording the process, or changing one small region through a selection.',
+        source: 'custom',
+        provider: 'chubby-fish-studio',
+        content: studioSkill,
+        resourceBase: { kind: 'directory', path: SKILL_DIR },
+        invocation: { modelInvocable: true, userInvocable: true },
+      }))
+    })
+  }
 
   ctx.on('dispose', () => {
     for (const set of listeners.values()) {

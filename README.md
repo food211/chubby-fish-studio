@@ -37,7 +37,7 @@
 
 **右侧栏里一张你和 AI 共用的画布**：真实的颜料混色、真实的湿画扩散。你画，它看得见；它画，你随时撤销。
 
-MIT · v0.9.1 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件
+MIT · v0.9.2 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件
 
 > 用下来有问题、想许愿新功能，或者想看看别人画了什么：[在 Discussions 的插件帖里聊](https://github.com/deepseek-ai/deepseek-harness/discussions/13604)。
 
@@ -72,7 +72,7 @@ MIT · v0.9.1 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 
 ## 一起画
 
-打开画布后正常说话就行。这些工具只作用于当前会话的画布：
+打开画布后正常说话就行。**开一张新画之前，模型会先加载 `canvas-studio` 技能**——它才是这间画室的说明书（见下面「画室技能：按需加载」）。这些工具只作用于当前会话的画布：
 
 | 工具 | 它用来做什么 | 代价 |
 |---|---|---|
@@ -85,11 +85,26 @@ MIT · v0.9.1 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 | `canvas_record` | **录制**：`start` / `stop`，把作画过程录下来、导出并返回文件路径 | 一条视频 |
 | `canvas_sample` | 读准确像素色值 | 一次几个点 |
 | `canvas_brushes` | **笔刷样张**：一张由本引擎自己画出来的标注样张 + 每种笔刷一行说明；不占画布、不需要打开面板 | 一张图，可按需调用 |
-| `canvas_tools` | **按需加载**：`canvas_guide` / `canvas_brushes` / `canvas_notes` / `canvas_sample` 这四个只在需要时才载入，平时不进请求的 schema | 一行 |
-| `canvas_guide` | **画法指南**：构图、配色、从后往前的分层顺序、笔压收笔、自检、何时该重画；纯文字 | 读一次 |
+| `canvas_tools` | **按需加载**：`canvas_brushes` / `canvas_notes` / `canvas_sample` 这三个只在需要时才载入，平时不进请求的 schema | 一行 |
 | `canvas_notes` | 读写**画布记忆**：多篇 MD 的目录，先看索引再读某一篇 | 索引很省，按篇读 |
 
 **六支笔 + 涂抹**：`watercolor` 水彩（会洇、会堆湿边）、`circle` 实色圆头、`soft` 实色柔边、`flat` 平头（小尺寸当铅笔）、`dry` 干笔飞白、`splatter` 喷溅，外加一支 **涂抹**（把已画的颜色拖开）。**选笔比调参更影响成画**——每种笔刷在同一颜色同一尺寸下画出来差多少，见下面「六种笔刷 + 涂抹」，模型也能用 `canvas_brushes` 拿到同一张样张和同一份表。
+
+### 画室技能：按需加载
+
+包里带一个技能 **`canvas-studio`**：模型目录里只占一行，用户也能直接 `/canvas-studio` 调。它本身只是一页**索引 + 硬规则**（约 1.3 KB），长内容按篇放在旁边，读不读哪一篇由模型按需决定：
+
+| 文件 | 内容 |
+|---|---|
+| `skills/canvas-studio/SKILL.md` | 索引 + 硬规则：没看过不能落笔、先背景后主体、白压深会灰 |
+| `references/craft.md` | 画法：构图与体块、分层与光、选笔落笔、自检 |
+| `references/tools.md` | 每把工具的用法、代价、返回、常见误用 |
+| `references/parameters.md` | 笔触全部字段、合法范围、自动夹取、形状与路径写法 |
+| `references/recording.md` | 录制、导出格式、GIF/视频裁剪配方 |
+| `references/selection.md` | 选区 `canvas_mask` |
+| `references/pitfalls.md` | 硬约束和踩过的坑（附带画布记忆的用法） |
+
+**为什么要拆**：DSH 每轮请求都要带系统提示和所有工具 schema。原先画法塞在系统提示里，**每一轮都在为它付费**。现在提示只留必须每轮在场的规则（三条看价、落笔守卫、坐标、笔宽 1×/2×、越界夹取，约 3 KB ≈ 原文的一半），其余内容等真要画的时候加载一次技能、再从索引里挑一篇读。
 
 ### 看三档，落笔前必须看过
 
@@ -323,6 +338,10 @@ A DeepSeek Harness plugin that gives the assistant you are talking to (known as
   at the top, were made stroke by stroke through `canvas_draw` and `canvas_record`;
   `canvas_look` shows it the picture and `canvas_sample` reads exact pixels. Every agent
   stroke lands in your undo stack.
+- **A skill, not a wall of prompt**: the studio ships a `canvas-studio` skill whose body is a
+  short index. The craft, the tool detail, every stroke field, the recording recipes, the
+  selection and the known traps live in `references/` beside it and are read only when a page
+  is actually needed — so the standing prompt carries the rules and nothing else.
 - **Two tempos**: manual, or realtime where stroke events queue in an inbox and trigger a
   look only once the stroke count, pixel-change and cooldown thresholds are met.
 - **Recording is a file, not a download**: the ● button and `canvas_record` write into the
