@@ -80,12 +80,16 @@ MIT · v0.9.0 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 | `canvas_zoom` | **凑近看**：给两个 0–1 的比例点（`from [0.2,0.3]` 到 `to [0.45,0.55]`），面板裁出这两点围成的矩形放大 | 只付这一块 |
 | `canvas_look` | **仔细看**：整张画原尺寸 + 像素尺寸、笔刷、调色板、颜色、撤销位置 | 最贵 |
 | `canvas_state` | 只读状态，不传图 | 最便宜，但**不算看过** |
-| `canvas_draw` | 落笔：多条笔触，每条可单独指定颜色、尺寸、**浓度**、**湿度**、**笔刷材质**、**压感曲线**，或用涂抹；也能 `undo` / `redo` / `clear` | — |
+| `canvas_draw` | 落笔：多条笔触，每条可单独指定颜色、尺寸、**浓度**、**湿度**、**笔刷材质**、**压感曲线**，或用涂抹；也能 `undo` / `redo` / `clear`；越界参数自动夹到合法值 | — |
+| `canvas_mask` | **选区**：矩形或多边形，设好之后笔刷和涂抹只在这个范围里生效 | 一次一行 |
+| `canvas_record` | **录制**：`start` / `stop`，把作画过程录下来、导出并返回文件路径 | 一条视频 |
 | `canvas_sample` | 读准确像素色值 | 一次几个点 |
 | `canvas_brushes` | **笔刷样张**：一张由本引擎自己画出来的标注样张 + 每种笔刷一行说明；不占画布、不需要打开面板 | 一张图，可按需调用 |
 | `canvas_tools` | **按需加载**：`canvas_guide` / `canvas_brushes` / `canvas_notes` / `canvas_sample` 这四个只在需要时才载入，平时不进请求的 schema | 一行 |
 | `canvas_guide` | **画法指南**：构图、配色、从后往前的分层顺序、笔压收笔、自检、何时该重画；纯文字 | 读一次 |
 | `canvas_notes` | 读写**画布记忆**：多篇 MD 的目录，先看索引再读某一篇 | 索引很省，按篇读 |
+
+**六支笔 + 涂抹**：`watercolor` 水彩（会洇、会堆湿边）、`circle` 实色圆头、`soft` 实色柔边、`flat` 平头（小尺寸当铅笔）、`dry` 干笔飞白、`splatter` 喷溅，外加一支 **涂抹**（把已画的颜色拖开）。**选笔比调参更影响成画**——每种笔刷在同一颜色同一尺寸下画出来差多少，见下面「六种笔刷 + 涂抹」，模型也能用 `canvas_brushes` 拿到同一张样张和同一份表。
 
 ### 看三档，落笔前必须看过
 
@@ -240,7 +244,8 @@ MIT · v0.9.0 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 | 左键 / 右键点颜料 | 设为前景色 / 背景色 |
 | Alt + 左 / 右键点画布 | 从画面取色 |
 | 大小 / 浓度 / 湿度 滑条 | 笔刷尺寸、颜料浓度、纸面湿度 |
-| 笔刷按钮 | 六种材质切换 |
+| 笔刷按钮 | 六种笔刷：`watercolor` 水彩、`circle` 圆头实色、`soft` 柔边、`flat` 平头、`dry` 干笔、`splatter` 喷溅（各自画出来什么样见「六种笔刷 + 涂抹」） |
+| 涂抹工具 | 像手指一样把已经画上的颜色沿路径拖开 |
 | 笔压 | 手写笔压感 |
 | 混色区 | 拖颜色进去手动调，滑条调混合强度 |
 | 保存按钮 | 存成 PNG |
@@ -299,7 +304,10 @@ A DeepSeek Harness plugin that gives the assistant you are talking to (known as
 **大肥鱼 / the chubby fish**) a canvas you both share. Installing it is the whole setup.
 
 - **Real pigment mixing** through a Kubelka–Munk engine, a watercolour pipeline with
-  concentration, paper wetness, wet edges and drips, six brush textures and a smudge tool.
+  concentration, paper wetness, wet edges and drips, and a smudge tool. Six brushes:
+  `watercolor` (bleeds and pools), `circle` (solid, crisp edge), `soft` (solid core, soft
+  rim), `flat` (blocks, or a pencil line at small size), `dry` (split bristles) and
+  `splatter` (spray).
 - **Three ways to look, at three prices**: `canvas_glance` is a thumbnail of the whole
   canvas, `canvas_zoom` is one enlarged crop, `canvas_look` is the whole picture at full
   size. The agent is expected to spend the cheapest one that answers its question.
