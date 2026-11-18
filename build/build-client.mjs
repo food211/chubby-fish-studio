@@ -317,13 +317,7 @@ function __mpxStampSpacing(size, brushType, spacingOverride) {
 
 // One animation frame, so the wet/deposit passes can run between stamp batches.
 function __mpxNextFrame() {
-    return new Promise((resolve) => {
-        if (typeof window.requestAnimationFrame === 'function') {
-            window.requestAnimationFrame(() => resolve());
-        } else {
-            window.setTimeout(resolve, 16);
-        }
-    });
+    return new Promise(resolve => requestAnimationFrame(resolve));
 }
 
 async function __mpxStroke(points, options) {
@@ -897,6 +891,7 @@ const __mpxRecorder = (function () {
 return {
     initApp,
     recorder: __mpxRecorder,
+    nextFrame: __mpxNextFrame,
     flush: function () {
         // Commit whatever the painter still has queued, so a capture cannot read a
         // framebuffer that is one frame behind the strokes the state already reports.
@@ -918,6 +913,7 @@ return {
     targetPixels: __mpxTargetPixels,
     currentWidth: function () { return _containerMaxWidth; },
     dispose: function () {
+        frameClock.dispose();
         const livePainter = __mpxPainter();
         try { if (livePainter && typeof livePainter.dispose === 'function') livePainter.dispose(); } catch (_error) {}
     },

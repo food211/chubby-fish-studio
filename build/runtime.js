@@ -113,7 +113,73 @@ window.__ModuleLoader__.load({
 
     // ------------------------------------------------------------------ vendor
 
+    // Browser animation frames pause in a hidden document. Keep only this canvas's
+    // pending work moving; foreground rendering still follows the display clock.
+    function makeFrameClock() {
+      const callbacks = new Map();
+      let serial = 0, generation = 0, pending = false, disposed = false;
+      let raf = 0, timer = 0, worker = null, workerFailed = false;
+      function cancelTick() {
+        generation++;
+        if (raf) window.cancelAnimationFrame(raf);
+        window.clearTimeout(timer);
+        raf = timer = 0;
+        pending = false;
+      }
+      function tick(token) {
+        if (token !== generation || disposed) return;
+        pending = false;
+        raf = timer = 0;
+        const now = window.performance.now();
+        for (const id of Array.from(callbacks.keys())) {
+          const fn = callbacks.get(id);
+          if (!fn) continue;
+          callbacks.delete(id);
+          try { fn(now); } catch (error) { console.error('[fish-studio] frame', error); }
+        }
+        schedule();
+      }
+      function schedule() {
+        if (disposed || pending || !callbacks.size) return;
+        const token = ++generation;
+        pending = true;
+        if (!window.document.hidden) {
+          raf = window.requestAnimationFrame(() => tick(token));
+          return;
+        }
+        if (!worker && !workerFailed) {
+          let url;
+          try {
+            url = URL.createObjectURL(new Blob(['onmessage = e => setTimeout(() => postMessage(e.data), 32)'], {type:'text/javascript'}));
+            worker = new Worker(url);
+            worker.onmessage = e => tick(e.data);
+            worker.onerror = () => {
+              worker.terminate(); worker = null; workerFailed = true;
+              cancelTick(); schedule();
+            };
+          } catch (_) { workerFailed = true; }
+          finally { if (url) URL.revokeObjectURL(url); }
+        }
+        if (worker) worker.postMessage(token);
+        else timer = window.setTimeout(() => tick(token), 32);
+      }
+      function switchClock() { cancelTick(); schedule(); }
+      window.document.addEventListener('visibilitychange', switchClock);
+      return {
+        request(fn) { const id = ++serial; if (!disposed) callbacks.set(id, fn); schedule(); return id; },
+        cancel(id) { callbacks.delete(id); if (!callbacks.size) cancelTick(); },
+        dispose() {
+          disposed = true; cancelTick(); callbacks.clear();
+          window.document.removeEventListener('visibilitychange', switchClock);
+          if (worker) worker.terminate();
+        },
+      };
+    }
+
     function __mpxBoot(document, window, localStorage, alert) {
+      const frameClock = makeFrameClock();
+      const requestAnimationFrame = frameClock.request;
+      const cancelAnimationFrame = frameClock.cancel;
 __MPX_VENDOR__
     }
 
@@ -346,9 +412,7 @@ __MPX_VENDOR__
       try {
         if (controller.api.flush) controller.api.flush();
       } catch (_error) {}
-      await new Promise((resolve) => {
-        try { window.requestAnimationFrame(() => resolve()); } catch (_error) { resolve(); }
-      });
+      await controller.api.nextFrame();
       return renderDataUrl(controller, spec);
     }
 
