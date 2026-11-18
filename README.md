@@ -4,12 +4,12 @@
   <img src="docs/gallery/portrait-process.gif" alt="自画像：AI 在这张画布上一笔一笔画出来，4 倍速" width="620">
 </p>
 <p align="center">
-  <sub><b>上面这段不是生成的图</b>，是 <code>canvas_record</code> 录下来的作画过程——蓝发鲸尾小女仆，从背景水洗一路画到右下角盖章，抽掉 3/4 的帧、4 倍速，最后一帧定格 1 秒。</sub>
+  <sub><b>上面这段不是生成的图</b>，是插件自带的录制录下来的作画过程——蓝发鲸尾小女仆，从背景水洗一路画到右下角盖章，抽掉 3/4 的帧、4 倍速，最后一帧定格 1 秒。</sub>
 </p>
 
 **右侧栏里一张你和 AI 共用的画布**：真实的颜料混色、真实的湿画扩散。你画，它看得见；它画，你随时撤销。
 
-MIT · v0.9.4 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件
+MIT · v0.9.5 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件
 
 > 用下来有问题、想许愿新功能，或者想看看别人画了什么：[在 Discussions 的插件帖里聊](https://github.com/deepseek-ai/deepseek-harness/discussions/13604)。
 
@@ -45,9 +45,9 @@ MIT · v0.9.4 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 <td width="34%"><img src="docs/gallery/flower.webp" alt="小花"></td>
 </tr>
 <tr>
-<td align="center"><sub>竹林 · 44 笔（<code>watercolor</code> 起雾、<code>circle</code> 铺竿、<code>taper</code> 收叶尖）</sub></td>
+<td align="center"><sub>竹林 · 44 笔（水彩起雾、圆头铺竿、收笔收叶尖）</sub></td>
 <td align="center"><sub>风景 · 41 笔（水洗天光，铺出三重山与湖）</sub></td>
-<td align="center"><sub>小花 · 37 笔（花瓣从尖端往花心落笔，<code>taper</code> 收窄）</sub></td>
+<td align="center"><sub>小花 · 37 笔（花瓣从尖端往花心落笔，收笔收窄）</sub></td>
 </tr>
 </table>
 
@@ -97,7 +97,7 @@ MIT · v0.9.4 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 | 左键 / 右键点颜料 | 设为前景色 / 背景色 |
 | Alt + 左 / 右键点画布 | 从画面取色 |
 | 大小 / 浓度 / 湿度 滑条 | 笔刷尺寸、颜料浓度、纸面湿度 |
-| 笔刷按钮 | 六种笔刷：`watercolor` 水彩、`circle` 圆头实色、`soft` 柔边、`flat` 平头、`dry` 干笔、`splatter` 喷溅 |
+| 笔刷按钮 | 六种笔刷：水彩、圆头实色、柔边、平头、干笔、喷溅 |
 | 涂抹工具 | 像手指一样把已经画上的颜色沿路径拖开 |
 | 笔压 | 手写笔压感 |
 | 混色区 | 拖颜色进去手动调，滑条调混合强度 |
@@ -115,17 +115,17 @@ MIT · v0.9.4 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 
 | 笔刷 | 画出来是什么 |
 |---|---|
-| `watercolor` | 会洇的湿画：边缘积水会漂，约一半沉积，尺寸越大越淡；这是铺氛围、背景和柔体块的那支 |
-| `circle` | 实色、不透明、边缘利落，任何尺寸都是满色 |
-| `soft` | 实心 + 柔边，喷枪手感 |
-| `flat` | 浓度 100 是实色方块；调小尺寸、间距调到 1%、浓度 75–90 就变成铅笔线 |
-| `dry` | 像干了的毛笔：笔毛分叉、飞白、粗糙，用得少 |
-| `splatter` | 散点喷溅，没有实心 |
+| 水彩 | 会洇的湿画：边缘积水会漂，约一半沉积，尺寸越大越淡；这是铺氛围、背景和柔体块的那支 |
+| 圆头实色 | 实色、不透明、边缘利落，任何尺寸都是满色 |
+| 柔边 | 实心 + 柔边，喷枪手感 |
+| 平头 | 浓度 100 是实色方块；调小尺寸、间距调到 1%、浓度 75–90 就变成铅笔线 |
+| 干笔 | 像干了的毛笔：笔毛分叉、飞白、粗糙，用得少 |
+| 喷溅 | 散点喷溅，没有实心 |
 | 涂抹（工具） | 把已经画上的颜色沿路径拖开 |
 
-宽度不一样，这点最容易估错：`circle`/`flat`/`soft` 大约等于滑条上的 size，`watercolor`/`dry`/`splatter` 大约**两倍**。
+宽度不一样，这点最容易估错：圆头、平头、柔边大约等于滑条上的 size，水彩、干笔、喷溅大约**两倍**。
 
-两条不随设置改变的硬边界：**水彩笔的白色压深色永远是灰的**，刷多少遍都白不回来（把湿度降到 20 只会让它斑驳）；反过来 `circle` / `flat` / `soft` 也做不出湿画的水味。
+两条不随设置改变的硬边界：**水彩笔的白色压深色永远是灰的**，刷多少遍都白不回来（把湿度降到 20 只会让它斑驳）；反过来圆头、平头、柔边也做不出湿画的水味。
 
 ![笔刷样张](docs/brushes.png)
 
