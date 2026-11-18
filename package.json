@@ -28,6 +28,7 @@
   },
   "files": [
     "index.js",
+    "polygon-fill.js",
     "client.js",
     "cordis.patch.yml",
     "locale/*.json",
@@ -47,5 +48,8 @@
         "@deepseek-ai/dsh-client-ui-conversation"
       ]
     }
+  },
+  "dependencies": {
+    "clipper-lib": "6.4.2"
   }
 }

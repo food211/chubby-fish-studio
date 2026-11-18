@@ -26,6 +26,7 @@ const LAST_PATH = '/mpx/canvas/last'
 const DEBUG_PATH = '/mpx/canvas/debug'
 
 import { createHash } from 'node:crypto'
+import { polygonFill } from './polygon-fill.js'
 import { spawn } from 'node:child_process'
 import { mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import { join, isAbsolute } from 'node:path'
@@ -140,7 +141,7 @@ export const inject = ['webServer']
 const CANVAS_PROMPT = [
   'The user has a pigment-mixing painting canvas: the 肥鱼画室 panel in the right sidebar. You can see it and paint on it through the same pigment pipeline the user paints with.',
   'Look at three prices: `canvas_glance` (the whole canvas as a thumbnail — placement and big shapes), `canvas_zoom` (one rectangle in canvas fractions, enlarged — a detail for the price of the crop), `canvas_look` (full size plus brush, palette and colours — when colour or an exact edge matters, or before advising on the painting). `canvas_state` gives the same facts without a picture and is not a look.',
-  'You cannot paint blind: `canvas_draw` refuses strokes until you have looked at the whole canvas this session, and again if the canvas has changed since that look (the user painted, undid, cleared, or the panel reloaded). After a refusal, look (a glance is enough), then draw — never retry it unchanged. Your own strokes do not invalidate the look.',
+  'You cannot paint blind: `canvas_draw` refuses strokes until you have looked at the whole canvas this session, and again if the canvas has changed since that look (the user painted, undid, cleared, or the panel reloaded). After a refusal, look (a glance is enough), then draw — never retry it unchanged. Your own strokes and a confirmed clear let you continue painting directly.',
   '`canvas_draw` paints strokes and also carries `smudge` plus the undo/redo/clear actions; every stroke lands in the user undo stack. Points are canvas pixels, or fractions of the canvas when every value is in 0-1. `size` is the half-width on the wash brushes (they spread about twice it) and about the full width on circle/flat/soft.',
   'Keep a call to a handful of strokes, about eight: a long or wide call that gets mangled costs the whole batch, while small calls lose only their own. A path can be the compact string "0.36,0.60 0.37,0.65", sturdier for long paths, and curves are curves — "… q cx,cy x,y" is one arc.',
   'For a large shape, sketching its sweep and silhouette first can help. See canvas_guide for the thumbnail check. Use `ellipse: [cx, cy, rx, ry]` for an oval, `polygon` for a filled outline, and `mirror: "x"` for a symmetrical pair.',
@@ -1118,6 +1119,22 @@ export function apply(ctx) {
    * @param {unknown[]} ops - operations to apply.
    * @returns {boolean} whether an open panel received them.
    */
+  async function dispatchAndWait(sessionId, ops) {
+    const id = `draw-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const finished = new Promise((resolve) => {
+      // Generous wait: strokes paint one at a time with a pause between them, so a
+      // full batch legitimately takes seconds. A client without the ack still gives
+      // up early rather than stalling the tool.
+      const timer = setTimeout(() => { pendingDone.delete(id); resolve(false) }, 20000)
+      pendingDone.set(id, () => { clearTimeout(timer); pendingDone.delete(id); resolve(true) })
+    })
+    if (!dispatch(sessionId, [...ops, { type: 'flush-ack', id }])) {
+      pendingDone.delete(id)
+      return null
+    }
+    return finished
+  }
+
   function dispatch(sessionId, ops) {
     const set = listeners.get(sessionId)
     if (!set || set.size === 0) return false
@@ -1682,7 +1699,7 @@ export function apply(ctx) {
 
     scope.tools.register({
       name: 'canvas_draw',
-      description: 'Paint on the user painting canvas through the same pigment-mixing pipeline the user paints with, or undo / redo / clear. Coordinates are canvas pixels, or 0-1 fractions of the canvas when every value is within 0-1 (measure those straight off a glance). Every change enters the user undo stack. Refuses strokes until you have looked at this session canvas, and again if the canvas changed since that look.',
+      description: 'Paint on the user painting canvas through the same pigment-mixing pipeline the user paints with, or undo / redo / clear. Coordinates are canvas pixels, or 0-1 fractions of the canvas when every value is within 0-1 (measure those straight off a glance). Every change enters the user undo stack. Refuses strokes until you have looked at or cleared this session canvas, and again if the canvas changed since that look.',
       parameters: {
         type: 'object',
         additionalProperties: false,
@@ -1717,7 +1734,7 @@ export function apply(ctx) {
                 to: { type: 'number', description: 'With ellipse: end angle in degrees.' },
                 polygon: {
                   type: 'array',
-                  description: 'Fill a polygon instead of sweeping: [[x, y], …], at least three vertices, units of points. Cut into horizontal bands, one stroke each.',
+                  description: 'Fill a polygon instead of sweeping: [[x, y], …], at least three vertices, units of points. One continuous stroke follows the outline and winds inward.',
                 },
                 seam: {
                   type: 'number',
@@ -1780,11 +1797,21 @@ export function apply(ctx) {
         const action = typeof args?.action === 'string' ? args.action : ''
         if (action) {
           if (!['undo', 'redo', 'clear'].includes(action)) return { text: `Unknown action "${action}".` }
+          if (action === 'clear') {
+            const confirmed = await dispatchAndWait(sessionId, [{ type: action }])
+            if (confirmed === null) return { text: CARD_TEXT.notOpen }
+            if (!confirmed) {
+              lastSeen.delete(sessionId)
+              return { text: 'Clear requested; the panel has not confirmed the new canvas. Check with canvas_glance before painting.' }
+            }
+            lastSeen.set(sessionId, stampOf(snapshots.get(sessionId)))
+            return { text: 'Cleared the canvas. Ready to paint.' }
+          }
           if (!dispatch(sessionId, [{ type: action }])) return { text: CARD_TEXT.notOpen }
           // The canvas moved under the model's feet: the next stroke needs a fresh look,
           // but undoing is not painting, so it needs no look itself.
           lastSeen.delete(sessionId)
-          const said = action === 'undo' ? 'Undid one step.' : action === 'redo' ? 'Redid one step.' : 'Cleared the canvas.'
+          const said = action === 'undo' ? 'Undid one step.' : 'Redid one step.'
           return { text: `${said} The canvas no longer matches what you saw, so look again (canvas_glance or canvas_look) before the next stroke.` }
         }
 
@@ -2014,38 +2041,6 @@ export function apply(ctx) {
           return points
         }
 
-        /**
-         * Cut a polygon into horizontal bands, one stroke each.
-         * @param {number[][]} polygon - vertices in canvas pixels.
-         * @param {number} brush - the stroke's spread, which sets the band pitch.
-         * @returns {number[][][]} one segment per band.
-         */
-        const polygonBands = (polygon, brush) => {
-          const size = Math.max(1, Number(brush) || 1)
-          const ys = polygon.map((point) => point[1])
-          const top = Math.min(...ys)
-          const bottom = Math.max(...ys)
-          const pitch = Math.max(2, size * 0.7)
-          const bands = []
-          for (let y = top + size * 0.5; y <= bottom - size * 0.25; y += pitch) {
-            const crossings = []
-            for (let index = 0; index < polygon.length; index += 1) {
-              const a = polygon[index]
-              const b = polygon[(index + 1) % polygon.length]
-              if ((a[1] <= y && b[1] > y) || (b[1] <= y && a[1] > y)) {
-                crossings.push(a[0] + ((y - a[1]) / (b[1] - a[1])) * (b[0] - a[0]))
-              }
-            }
-            crossings.sort((left, right) => left - right)
-            for (let index = 0; index + 1 < crossings.length; index += 2) {
-              const start = crossings[index] + size * 0.5
-              const end = crossings[index + 1] - size * 0.5
-              bands.push(end - start >= 1 ? [[start, y], [end, y]] : [[(start + end) / 2, y]])
-            }
-          }
-          return bands
-        }
-
         const readStroke = (stroke) => {
           const shape = Array.isArray(stroke?.ellipse) ? stroke.ellipse.map(Number) : undefined
           const declaredUnit = stroke?.unit === 'ratio' ? true : stroke?.unit === 'pixels' ? false : undefined
@@ -2102,7 +2097,7 @@ export function apply(ctx) {
           return { text: 'These strokes are given as fractions of the canvas, but the host does not know the canvas size yet, so the fractions cannot be turned into pixels. Call canvas_glance (or canvas_look) once, then send them again.' }
         }
         let outOfBounds = 0
-        /** Turn one stroke spec into one or more point arrays (bands, or a mirrored twin). */
+        /** Turn one stroke spec into one or more point arrays (including mirrored shapes). */
         const plansFor = (stroke) => {
           const polygon = readPolygon(stroke)
           const jitter = Math.max(0, Math.min(20, Number(stroke?.jitter) || 0))
@@ -2113,9 +2108,9 @@ export function apply(ctx) {
             ]))
             : plans)
           if (polygon) {
-            // Bands are perfectly parallel by construction; jitter is what keeps them from
-            // reading as a printout rather than as paint.
-            return shake(polygonBands(polygon, Number(stroke?.size) || 40))
+            const fill = polygonFill(polygon, Number(stroke.size) || Number(metaObject.brush?.size) || 40)
+            stroke.size = fill.size
+            return fill.points.length ? shake([fill.points]) : []
           }
           const { raw, curved, asRatio } = readStroke(stroke)
           let clipped = false
@@ -2140,7 +2135,8 @@ export function apply(ctx) {
           if (taper) points = applyTaper(points, taper)
           return curved ? shake([points]) : [points]
         }
-        const ops = strokes.flatMap((stroke) => {
+        const ops = strokes.flatMap((input) => {
+          const stroke = { ...input }
           const mirrored = stroke?.mirror === 'x' || stroke?.mirror === 'y' || stroke?.mirror === true
           const base = plansFor(stroke)
           // Snapshot the base plans before adding reflections: iterating an array while
@@ -2175,19 +2171,8 @@ export function apply(ctx) {
         if (ops.length > 400) {
           return { text: `That expands to ${ops.length} strokes, which is more than this tool will send in one call. Split it into smaller shapes or fewer polygon vertices.` }
         }
-        const id = `draw-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-        const finished = new Promise((resolve) => {
-          // Generous wait: strokes paint one at a time with a pause between them, so a
-          // full batch legitimately takes seconds. A client without the ack still gives
-          // up early rather than stalling the tool.
-          const timer = setTimeout(() => { pendingDone.delete(id); resolve(false) }, 20000)
-          pendingDone.set(id, () => { clearTimeout(timer); pendingDone.delete(id); resolve(true) })
-        })
-        if (!dispatch(sessionId, [...ops, { type: 'flush-ack', id }])) {
-          pendingDone.delete(id)
-          return { text: CARD_TEXT.notOpen }
-        }
-        const acked = await finished
+        const acked = await dispatchAndWait(sessionId, ops)
+        if (acked === null) return { text: CARD_TEXT.notOpen }
         // Its own strokes are the one change it is allowed not to look at again; a timed
         // out ack means the picture may not have reached the host yet, so look next time.
         if (acked) lastSeen.set(sessionId, stampOf(snapshots.get(sessionId)))

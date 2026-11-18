@@ -308,7 +308,7 @@ __MPX_VENDOR__
               }).catch(() => {});
             } else if (op.type === 'flush-ack') {
               // Tell the tool the canvas is really updated, picture included.
-              await pushNow(controller, 'stroke-done');
+              if (!await pushNow(controller, 'stroke-done')) continue;
               await fetch('/mpx/canvas/done', {
                 method: 'POST',
                 headers: { 'content-type': 'application/json' },
