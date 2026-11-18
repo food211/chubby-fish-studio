@@ -144,7 +144,7 @@ const CANVAS_PROMPT = [
   'You cannot paint blind: `canvas_draw` refuses strokes until you have looked at the whole canvas this session, and again if the canvas has changed since that look (the user painted, undid, cleared, or the panel reloaded). After a refusal, look (a glance is enough), then draw — never retry it unchanged. Your own strokes and a confirmed clear let you continue painting directly.',
   '`canvas_draw` paints strokes and also carries `smudge` plus the undo/redo/clear actions; every stroke lands in the user undo stack. Points are canvas pixels, or fractions of the canvas when every value is in 0-1. `size` is the half-width on the wash brushes (they spread about twice it) and about the full width on circle/flat/soft.',
   'Keep a call to a handful of strokes, about eight: a long or wide call that gets mangled costs the whole batch, while small calls lose only their own. A path can be the compact string "0.36,0.60 0.37,0.65", sturdier for long paths, and curves are curves — "… q cx,cy x,y" is one arc.',
-  'For a large shape, sketching its sweep and silhouette first can help. See canvas_guide for the thumbnail check. Use `ellipse: [cx, cy, rx, ry]` for an oval, `polygon` for a filled outline, and `mirror: "x"` for a symmetrical pair.',
+  'For a large shape, sketching its sweep and silhouette first can help. See canvas_guide for the thumbnail check. Use `ellipse: [cx, cy, rx, ry]` for an oval, `polygon` for a filled outline, `path` with `fill: true` for a curved silhouette, and `mirror: "x"` for a symmetrical pair.',
   'Depth comes from strength and a second pass, not from wetness: 20 is barely a stain, 77 lands about 60% of the pigment, only near 100 does the colour read as itself. Wetness is how far the edge travels (100 bleeds, 20 holds), so lower it to sharpen a shape rather than to darken it — and a watercolor at low wetness goes patchy, not solid.',
   'The drip run-off is a separate knob from wetness: per stroke `drip: "off"` suppresses it, `"on"` forces it, `"auto"` leaves it to the device and the panel toggle, and `dripAmount` 0-2 (1 is the default) sets how often drops spawn and how many are allowed at once. Drops only form at wetness 50 or more, on a `watercolor` stroke — so push wetness up first, then season with dripAmount rather than flooding the picture. `dripAmount` is density, not reach: how far a drop runs is fixed by the brush size and the wetness, so for longer runs use a larger brush or wetter paint, not a bigger amount.',
   'Possible brush choices include `watercolor` for atmosphere, `circle`/`soft` for clean opaque shapes, `flat` for blocks or (small size, `spacing` 1, strength 75-90) for pencil lines, `splatter` for grain, `dry` for broken bristle texture. The brush sheet gives example settings. No setting turns a watercolor white opaque over dark, and circle/flat/soft cannot make a wash.',
@@ -1732,6 +1732,7 @@ export function apply(ctx) {
                 ring: { type: 'boolean', description: 'With ellipse: outline it instead of filling; size is then the line width.' },
                 from: { type: 'number', description: 'With ellipse: start angle in degrees (0 = right, clockwise); with to it makes an arc.' },
                 to: { type: 'number', description: 'With ellipse: end angle in degrees.' },
+                fill: { type: 'boolean', description: 'With path: close the outline and fill it in one stroke. Mix straight segments with q and c curves; optional final z. Example: 100,150 q 130,70 200,120 c 185,145 145,185 100,150.' },
                 polygon: {
                   type: 'array',
                   description: 'Fill a polygon instead of sweeping: [[x, y], …], at least three vertices, units of points. One continuous stroke follows the outline and winds inward.',
@@ -1818,7 +1819,7 @@ export function apply(ctx) {
         const refusal = drawGuardText(sessionId)
         if (refusal) return { text: refusal }
 
-        const strokes = Array.isArray(args?.strokes) ? args.strokes : []
+        let strokes = Array.isArray(args?.strokes) ? args.strokes : []
         if (!strokes.length) return { text: 'Nothing to do: pass strokes, or an action of undo, redo or clear.' }
         const entryMeta = snapshots.get(sessionId)?.meta
         const metaObject = entryMeta && typeof entryMeta === 'object' ? entryMeta : {}
@@ -1879,7 +1880,17 @@ export function apply(ctx) {
          * @param {unknown} text - the path string.
          * @returns {{ points: number[][], curved: boolean }} parsed path and whether Bézier commands were used.
          */
-        const parsePath = (text) => {
+        // Linear interpolation error is bounded by max |B''| / (8 * steps²).
+        function curveSteps(control) {
+          let bend = 0
+          for (let i = 2; i < control.length; i++) {
+            const [a,b,c] = control.slice(i-2, i+1)
+            bend = Math.max(bend, Math.hypot(a[0]-2*b[0]+c[0], a[1]-2*b[1]+c[1]))
+          }
+          const degree = control.length - 1
+          return Math.min(512, Math.max(2, Math.ceil(Math.sqrt(bend * degree * (degree-1) / 2))))
+        }
+        const parsePath = (text, pixelCurves = false) => {
           if (typeof text !== 'string') return { points: [], curved: false }
           const points = []
           let pending = []
@@ -1901,11 +1912,11 @@ export function apply(ctx) {
             const from = points[points.length - 1]
             if (!from) continue
             if (mode === 'q' && pending.length === 2) {
-              points.push(...sampleQuadratic(from, pending[0], pending[1], 12))
+              points.push(...sampleQuadratic(from, pending[0], pending[1], pixelCurves ? curveSteps([from,...pending]) : 12))
               pending = []
               mode = 'line'
             } else if (mode === 'c' && pending.length === 3) {
-              points.push(...sampleCubic(from, pending[0], pending[1], pending[2], 16))
+              points.push(...sampleCubic(from, pending[0], pending[1], pending[2], pixelCurves ? curveSteps([from,...pending]) : 16))
               pending = []
               mode = 'line'
             }
@@ -2092,6 +2103,45 @@ export function apply(ctx) {
           return asRatio
             ? points.map((point) => [point[0] * canvasWidth, point[1] * canvasHeight])
             : points
+        }
+        // Convert a single closed outline to pixel coordinates before sampling Béziers.
+        // Straight segments and the joins between curves keep their authored corners.
+        function filledPath(stroke) {
+          if (!stroke?.fill) return stroke
+          if (typeof stroke.path !== 'string' || stroke.points || stroke.polygon || stroke.ellipse) {
+            throw Error('Use fill: true with one path string.')
+          }
+          const tokens = stroke.path.trim().split(/[\s;]+/)
+          if (/^m$/i.test(tokens[0])) tokens.shift()
+          if (/^z$/i.test(tokens.at(-1))) tokens.pop()
+          const coords = []
+          let needed = 0
+          for (const token of tokens) {
+            if (/^[qlc]$/i.test(token)) {
+              if (!coords.length || needed) throw Error('Incomplete segment in filled path.')
+              needed = { l:1, q:2, c:3 }[token.toLowerCase()]
+            } else {
+              const pair = token.split(',')
+              if (pair.length !== 2 || pair.some(n => !n || !Number.isFinite(Number(n)))) throw Error('Expected x,y in filled path.')
+              coords.push(pair.map(Number))
+              if (needed) needed--
+            }
+          }
+          if (needed || coords.length < 3) throw Error('A filled outline needs a complete curve or at least three vertices.')
+          const ratio = stroke.unit === 'ratio' || (!stroke.unit && looksLikeFractions(coords))
+          if (ratio && (!canvasWidth || !canvasHeight)) throw Error('Look at the canvas first to get its size.')
+          let index = 0
+          const path = tokens.map(token => {
+            if (!token.includes(',')) return token
+            const [x,y] = coords[index++]
+            return ratio ? [x*canvasWidth,y*canvasHeight].join(',') : token
+          }).join(' ')
+          return { ...stroke, path: undefined, unit: 'pixels', polygon: parsePath(path, true).points }
+        }
+        try {
+          strokes = strokes.map(filledPath)
+        } catch (error) {
+          return { text: 'Not painted: ' + error.message }
         }
         if (strokes.some((stroke) => readStroke(stroke).asRatio) && (!canvasWidth || !canvasHeight)) {
           return { text: 'These strokes are given as fractions of the canvas, but the host does not know the canvas size yet, so the fractions cannot be turned into pixels. Call canvas_glance (or canvas_look) once, then send them again.' }
