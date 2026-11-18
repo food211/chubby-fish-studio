@@ -127,6 +127,24 @@ node build/build-client.mjs --src <upstream checkout>
 
 脚本逐文件注入并施加受断言保护的补丁：上游文件结构一变就报错退出，不会静默产出坏包。
 
+## 自检
+
+改完元数据、文案或落笔参数后跑一遍：
+
+```sh
+node scripts/check.mjs          # 或 pnpm check / npm run check
+node scripts/check.mjs locale   # 只跑一组：package / locale / skill / draw
+```
+
+| 组 | 查什么 |
+|---|---|
+| `package` | 官方包契约：manifest、补丁行、locale 元数据、详情页一张图、图标、Host 导出、`files` 覆盖 |
+| `locale` | 面板文案是否全部走 Client locale 服务：每个 `t()` 键都有中文、没有多余译文、没有残留的 `L()`/`withLang`/`navigator` |
+| `skill` | `canvas-studio` 技能能正常注册，索引里点名的每个 `references/*.md` 都存在且有内容 |
+| `draw` | 参数合法化：比例越界、数值越界、像素坐标、填充路径、压感——都不许失败或画到看不见的地方 |
+
+这些脚本只读仓库、不碰运行中的应用；`draw` 那组用一条假的 SSE 面板和真实的 ack 路由，所以不需要打开画室。
+
 ## English summary
 
 A shared painting canvas between you and the agent. The panel hosts a custom
