@@ -1,6 +1,6 @@
 {
   "name": "chubby-fish-studio",
-  "version": "0.9.6",
+  "version": "0.10.0",
   "type": "module",
   "description": "A pigment-mixing painting canvas for DeepSeek Harness: the agent can see it, paint on it, and read exact pixels.",
   "license": "MIT",
@@ -32,7 +32,12 @@
     "client.js",
     "cordis.patch.yml",
     "locale/*.json",
-    "docs",
+    "docs/DETAIL.md",
+    "docs/DETAIL.zh.md",
+    "docs/preview.svg",
+    "docs/DEVELOPMENT.md",
+    "docs/CREDITS.md",
+    "docs/brushes.png",
     "icon.svg",
     "build",
     "skills"

@@ -18,13 +18,98 @@ window.__ModuleLoader__.load({
     const SAVE_ICON = __MPX_SAVE_ICON__;
     const PLUGIN_ICON = __MPX_PLUGIN_ICON__;
 
-    // The panel's chrome follows the browser language, and the host's <html lang> only
-    // as a second vote: the app itself decides its own language from navigator, so
-    // trusting <html lang> alone flipped this chrome to English under a Chinese UI.
-    const ZH = /^zh/i.test(navigator.language || '')
-      || /^zh/i.test((window.document.documentElement || {}).lang || '');
-    const L = (en, zh) => (ZH ? zh : en);
-    const withLang = (lang, en, zh) => (/^zh/i.test(lang || '') ? zh : en);
+    // Visible panel text goes through the Client locale service, and nothing here reads
+    // navigator: the app's own language setting is the single source of truth. The English
+    // text doubles as the dictionary key, so a missing entry still shows something readable.
+    const NAMESPACE = PKG;
+    /** zh dictionary: key = the English text, value = the Chinese text. */
+    const DICT_ZH = {
+      "Canvas failed to start: ": "画布启动失败：",
+      "Open folder": "打开文件夹",
+      "● Recording": "● 录制中",
+      "recording failed": "录制失败",
+      "Reload the page (the painting is saved first)": "刷新页面（会先保存画面）",
+      "Reload the page": "刷新页面",
+      "Reload the panel": "重载面板",
+      "Reload the whole page": "重载整个界面",
+      "Show the fish": "让肥鱼看看",
+      "Release selection": "解除选区",
+      "Record": "录制",
+      "Cancel": "取消",
+      "Send": "发送",
+      "Settings": "设置",
+      "Canvas resolution": "画布分辨率",
+      "Canvas": "画布",
+      "Recording folder": "录制保存目录",
+      "Save to": "保存到",
+      "Choose folder…": "选择文件夹…",
+      "Default": "用默认",
+      "Export format": "导出格式",
+      "What a clip saved by the agent becomes. mp4 and gif need ffmpeg on the host; without it the webm is kept.": "模型录制完成后导出的格式。mp4 和 gif 需要宿主装有 ffmpeg，没有就只留 webm。",
+      "When the agent looks": "模型何时看画",
+      "Mode": "模式",
+      "Manual": "手动",
+      "Live": "实时",
+      "Every N strokes": "每 N 笔触发",
+      "Pixel change at least (%)": "像素变化阈值 (%)",
+      "Minimum gap (s)": "最短间隔 (秒)",
+      "Brush events collect in an inbox; the agent is asked to look only when a threshold is met and the gap has passed, and it is asked for a thumbnail first — a closer look is its own call. Apply per stroke: every stroke, or the pixel difference from the previous frame.": "画笔事件先进收件箱，达到任一阈值且过了冷却时间，才会让模型看一眼；看的时候先给缩略图（glance），要不要细看由模型自己决定。像素差是按 64×64 降采样后与上一帧比较得出的。",
+      "Resizing resamples the painting and resets the undo history.": "调整分辨率会重新采样画面并重置撤销历史。",
+      "Apply": "应用",
+      "Default: the harness home, in canvas-recordings.": "默认：harness home 下的 canvas-recordings。",
+      "Default: ": "默认：",
+      "Opening…": "打开中…",
+      "Could not open the folder: ": "打开文件夹失败：",
+      "the host did not answer": "宿主没有回应",
+      "This host exposes no folder picker; recordings go to the harness home.": "这个宿主没有可用的目录选择器，录制会落到默认目录。",
+      "Opening the folder picker…": "正在打开目录选择器…",
+      "The folder picker failed: ": "目录选择器出错：",
+      "Canvas size and settings": "画布尺寸与设置",
+      "Click for live mode: the agent looks while you paint": "点击切到实时：模型会在你画的过程中自己看",
+      "Live mode: the agent will look while you paint.": "实时模式：模型会在你画的过程中自己看。",
+      "Manual mode: the agent looks only when you ask.": "手动模式：只有你开口时模型才会看。",
+      "Resize failed; the canvas is unchanged.": "调整失败，画布未变。",
+      "What do you want to tell the model about this painting?": "想跟模型说什么？（会附上当前画面）",
+      "Sent with the canvas attached.": "已发送，画布已附上。",
+      "Sent, but the canvas could not be attached.": "已发送，但画布没能附上。",
+      "Could not reach the agent: ": "没能送到模型：",
+      "Send failed: ": "发送失败：",
+      "This browser has no MediaRecorder": "这个浏览器不支持录制",
+      "Cannot start recording": "无法开始录制",
+      "… Saving": "… 生成中",
+      "■ Saving the clip…": "■ 正在保存…",
+      "Nothing was captured — keep the panel visible while painting": "没抓到画面——录制时别把面板切走",
+      "[canvas] mount failed: ": "[画布] 挂载失败：",
+      "Open the studio": "打开画室",
+      "Chubby fish studio": "肥鱼画室",
+      "Paint with the fish on one canvas": "和肥鱼共用一张画布",
+      'Saved · {kb} KB': '已保存 · {kb} KB',
+      'Saved to the download folder · {kb} KB': '已保存到下载文件夹 · {kb} KB',
+      'Stop and save ({seconds}s)': '停止并保存（已录 {seconds} 秒）',
+      'Canvas resized to {width}×{height} px. Undo history was reset.': '画布已调整为 {width}×{height} px，撤销历史已重置。',
+      'The agent looks on its own: every {strokes} strokes or {change}% change, at most every {cooldown}s': '模型会自己看画：每 {strokes} 笔或变化 {change}%，最快每 {cooldown} 秒一次',
+      "Left/right click a pigment → foreground/background colour": "左键/右键点击颜料 → 选择为前景色/背景色",
+      "Click a brush icon → switch the brush texture": "点击笔刷图标 → 切换笔刷材质",
+      "Alt + left click the canvas → pick as foreground": "Alt + 左键点击画布 → 取色为前景色",
+      "Alt + right click the canvas → pick as background": "Alt + 右键点击画布 → 取色为背景色",
+      "Click ↶ undo / ↷ redo": "点击 ↶ 撤销 / ↷ 重做",
+      "Press Space → hand keyboard focus back to the app": "按空格 → 把键盘焦点交还 DSH",
+      "Click ⚙ → set the canvas size with a slider or a number": "点击 ⚙ → 用滑条或数字改画布尺寸",
+      "Ask the agent → it can see the canvas and demonstrate a stroke": "和肥鱼说话 → 它能看见画布，也能示范落笔",
+      "save the painting as PNG": "保存当前画面为 PNG",
+      "Watercolour brush → the KM pigment engine is the only engine here": "水彩笔刷 → 本面板只有 KM 颜料引擎",
+      'Reload': '刷新',
+      'Reload (the painting is saved first)': '刷新（会先保存画面）',
+    };
+    /** en is identity: the key already is the English text. */
+    const DICT_EN = Object.fromEntries(Object.keys(DICT_ZH).map((key) => [key, key]));
+    /** Bound by the plugin once the locale service is available. */
+    let localeTranslate = null;
+    function t(key, params) {
+      if (localeTranslate) return localeTranslate(key, params);
+      if (!params) return key;
+      return key.replace(/\{(\w+)\}/g, (match, name) => (name in params ? String(params[name]) : match));
+    }
 
     // ------------------------------------------------------------------ vendor
 
@@ -95,7 +180,7 @@ __MPX_VENDOR__
     function panelError(bodyEl, error) {
       const box = window.document.createElement('div');
       box.setAttribute('style', 'padding:16px;color:#e8eaed;font:13px/1.5 system-ui;overflow:auto');
-      box.textContent = L('Canvas failed to start: ', '画布启动失败：') + (error && error.message ? error.message : String(error));
+      box.textContent = t('Canvas failed to start: ') + (error && error.message ? error.message : String(error));
       bodyEl.appendChild(box);
     }
 
@@ -347,18 +432,18 @@ __MPX_VENDOR__
                   // The agent's clip lands in the same folder as the user's own, so the
                   // same button reaches it.
                   controller.showRecToast(
-                    L('Saved · ' + kb + ' KB', '已保存 · ' + kb + ' KB'),
+                    t('Saved · {kb} KB', { kb }),
                     2600,
                     {
-                      label: L('Open folder', '打开文件夹'),
+                      label: t('Open folder'),
                       run: () => { openRecordFolder((controller.settings || {}).recordDir || ''); },
                     },
                   );
                 }
               } else if (reply && reply.ok && op.action === 'start') {
-                if (controller.showRecToast) controller.showRecToast(L('● Recording', '● 录制中'), 2000);
+                if (controller.showRecToast) controller.showRecToast(t('● Recording'), 2000);
               } else if (reply && !reply.ok && controller.showRecToast) {
-                controller.showRecToast(String(reply.reason || L('recording failed', '录制失败')), 3200);
+                controller.showRecToast(String(reply.reason || t('recording failed')), 3200);
               }
             } else if (op.type === 'clear-records') {
               applied += 0;
@@ -601,40 +686,25 @@ __MPX_VENDOR__
 
     // The instructions list is this panel's own copy: the app's i18n pass does not
     // reliably fill those nodes, and the upstream lines tie some of them to a desktop host.
-    const INSTRUCTION_COPY = {
-      zh: [
-        '左键/右键点击颜料 → 选择为前景色/背景色',
-        '点击笔刷图标 → 切换笔刷材质',
-        'Alt + 左键点击画布 → 取色为前景色',
-        'Alt + 右键点击画布 → 取色为背景色',
-        '点击 ↶ 撤销 / ↷ 重做',
-        '按空格 → 把键盘焦点交还 DSH',
-        '点击 ⚙ → 用滑条或数字改画布尺寸',
-        '和肥鱼说话 → 它能看见画布，也能示范落笔',
-        { icon: true, text: '保存当前画面为 PNG' },
-        '水彩笔刷 → 本面板只有 KM 颜料引擎',
-      ],
-      en: [
-        'Left/right click a pigment → foreground/background colour',
-        'Click a brush icon → switch the brush texture',
-        'Alt + left click the canvas → pick as foreground',
-        'Alt + right click the canvas → pick as background',
-        'Click ↶ undo / ↷ redo',
-        'Press Space → hand keyboard focus back to the app',
-        'Click ⚙ → set the canvas size with a slider or a number',
-        'Ask the agent → it can see the canvas and demonstrate a stroke',
-        { icon: true, text: 'save the painting as PNG' },
-        'Watercolour brush → the KM pigment engine is the only engine here',
-      ],
-    };
+    const INSTRUCTION_KEYS = [
+      'Left/right click a pigment → foreground/background colour',
+      'Click a brush icon → switch the brush texture',
+      'Alt + left click the canvas → pick as foreground',
+      'Alt + right click the canvas → pick as background',
+      'Click ↶ undo / ↷ redo',
+      'Press Space → hand keyboard focus back to the app',
+      'Click ⚙ → set the canvas size with a slider or a number',
+      'Ask the agent → it can see the canvas and demonstrate a stroke',
+      { icon: true, key: 'save the painting as PNG' },
+      'Watercolour brush → the KM pigment engine is the only engine here',
+    ];
 
-    function renderInstructions(bodyEl, language) {
+    function renderInstructions(bodyEl) {
       const host = bodyEl.querySelector('#instructionsBody');
       if (!host) return;
-      const lines = INSTRUCTION_COPY[/^zh/i.test(language || '') ? 'zh' : 'en'];
       host.textContent = '';
-      for (const entry of lines) {
-        const text = typeof entry === 'string' ? entry : entry.text;
+      for (const entry of INSTRUCTION_KEYS) {
+        const text = t(typeof entry === 'string' ? entry : entry.key);
         const row = window.document.createElement('p');
         row.appendChild(window.document.createTextNode('• '));
         if (typeof entry === 'object' && entry.icon) {
@@ -757,8 +827,8 @@ __MPX_VENDOR__
       reloadButton.type = 'button';
       reloadButton.className = 'mpx-reload-btn';
       reloadButton.textContent = '↻';
-      reloadButton.title = L('Reload the page (the painting is saved first)', '刷新页面（会先保存画面）');
-      reloadButton.setAttribute('aria-label', L('Reload the page', '刷新页面'));
+      reloadButton.title = t('Reload the page (the painting is saved first)');
+      reloadButton.setAttribute('aria-label', t('Reload the page'));
       titleCell.appendChild(reloadButton);
 
       // Two levels: rebuild this panel only, or reload the page when the bundle changed.
@@ -766,8 +836,8 @@ __MPX_VENDOR__
       reloadMenu.className = 'mpx-reload-menu';
       reloadMenu.hidden = true;
       reloadMenu.innerHTML = [
-        `<button type="button" data-mpx-reload-panel>${L('Reload the panel', '重载面板')}</button>`,
-        `<button type="button" data-mpx-reload-page>${L('Reload the whole page', '重载整个界面')}</button>`,
+        `<button type="button" data-mpx-reload-panel>${t('Reload the panel')}</button>`,
+        `<button type="button" data-mpx-reload-page>${t('Reload the whole page')}</button>`,
       ].join('');
       bodyEl.appendChild(reloadMenu);
 
@@ -786,10 +856,10 @@ __MPX_VENDOR__
       const askButton = window.document.createElement('button');
       askButton.type = 'button';
       askButton.className = 'mpx-ask-btn';
-      askButton.textContent = L('Show the fish', '让肥鱼看看');
+      askButton.textContent = t('Show the fish');
       const release = window.document.createElement('button');
       release.type = 'button'; release.hidden = true; release.className = 'mpx-pick-btn';
-      release.textContent = L('Release selection', '解除选区');
+      release.textContent = t('Release selection');
       release.addEventListener('click', () => { controller.api.setMask(null); release.hidden = true; schedulePush(controller,0); });
       controller.maskRelease = release;
       pillHost.appendChild(release);
@@ -803,7 +873,7 @@ __MPX_VENDOR__
       recordButton.className = 'mpx-record-btn';
       recordButton.setAttribute('data-mpx-record', '');
       recordButton.textContent = '';
-      recordButton.title = L('Record', '录制');
+      recordButton.title = t('Record');
       pillHost.insertBefore(recordButton, pillHost.firstChild);
       pillHost.appendChild(pill);
 
@@ -813,8 +883,8 @@ __MPX_VENDOR__
       askPop.innerHTML = [
         '<textarea class="mpx-ask-input" rows="3" data-mpx-ask-input></textarea>',
         '<div class="mpx-ask-actions">',
-        `<button type="button" data-mpx-ask-cancel>${L('Cancel', '取消')}</button>`,
-        `<button type="button" data-mpx-ask-send>${L('Send', '发送')}</button>`,
+        `<button type="button" data-mpx-ask-cancel>${t('Cancel')}</button>`,
+        `<button type="button" data-mpx-ask-send>${t('Send')}</button>`,
         '</div>',
       ].join('');
       bodyEl.appendChild(askPop);
@@ -824,8 +894,8 @@ __MPX_VENDOR__
       modal.hidden = true;
       modal.innerHTML = [
         '<div class="mpx-modal-card" role="dialog" aria-modal="true" aria-labelledby="mpx-settings-title" tabindex="-1">',
-        `<h3 id="mpx-settings-title">${L('Settings', '设置')}</h3>`,
-        `<p class="mpx-section">${L('Canvas resolution', '画布分辨率')}</p>`,
+        `<h3 id="mpx-settings-title">${t('Settings')}</h3>`,
+        `<p class="mpx-section">${t('Canvas resolution')}</p>`,
         '<div class="mpx-modal-row">',
         '<div class="custom-range-wrap">',
         '<input type="range" data-mpx-range aria-label="canvas width in pixels" class="mpx-range-input">',
@@ -833,43 +903,43 @@ __MPX_VENDOR__
         '</div>',
         '<input type="number" data-mpx-number aria-label="canvas width in pixels">',
         '</div>',
-        `<p class="mpx-hint">${L('Canvas', '画布')} <b data-mpx-px></b> px</p>`,
+        `<p class="mpx-hint">${t('Canvas')} <b data-mpx-px></b> px</p>`,
         '<div class="mpx-divider"></div>',
-        `<p class="mpx-section">${L('Recording folder', '录制保存目录')}</p>`,
-        `<div class="mpx-field mpx-field-col"><label>${L('Save to', '保存到')}</label>`
+        `<p class="mpx-section">${t('Recording folder')}</p>`,
+        `<div class="mpx-field mpx-field-col"><label>${t('Save to')}</label>`
           + `<div class="mpx-btn-row">`
-          + `<button type="button" class="mpx-pick-btn" data-mpx-record-pick>${L('Choose folder…', '选择文件夹…')}</button>`
-          + `<button type="button" class="mpx-pick-btn" data-mpx-record-clear>${L('Default', '用默认')}</button>`
-          + `<button type="button" class="mpx-pick-btn" data-mpx-record-open>${L('Open folder', '打开文件夹')}</button>`
+          + `<button type="button" class="mpx-pick-btn" data-mpx-record-pick>${t('Choose folder…')}</button>`
+          + `<button type="button" class="mpx-pick-btn" data-mpx-record-clear>${t('Default')}</button>`
+          + `<button type="button" class="mpx-pick-btn" data-mpx-record-open>${t('Open folder')}</button>`
           + '</div></div>',
         '<p class="mpx-hint" data-mpx-record-dir></p>',
-        `<div class="mpx-field mpx-field-col"><label>${L('Export format', '导出格式')}</label>`
+        `<div class="mpx-field mpx-field-col"><label>${t('Export format')}</label>`
           + '<div class="mpx-seg mpx-seg-formats">'
           + `<button type="button" data-mpx-format="both">webm+mp4</button>`
           + `<button type="button" data-mpx-format="webm">webm</button>`
           + `<button type="button" data-mpx-format="mp4">mp4</button>`
           + `<button type="button" data-mpx-format="gif">gif</button>`
           + '</div></div>',
-        `<p class="mpx-hint">${L('What a clip saved by the agent becomes. mp4 and gif need ffmpeg on the host; without it the webm is kept.', '模型录制完成后导出的格式。mp4 和 gif 需要宿主装有 ffmpeg，没有就只留 webm。')}</p>`,
+        `<p class="mpx-hint">${t('What a clip saved by the agent becomes. mp4 and gif need ffmpeg on the host; without it the webm is kept.')}</p>`,
         '<div class="mpx-divider"></div>',
-        `<p class="mpx-section">${L('When the agent looks', '模型何时看画')}</p>`,
-        `<div class="mpx-field"><label>${L('Mode', '模式')}</label><div class="mpx-seg">`
-          + `<button type="button" data-mpx-mode="manual">${L('Manual', '手动')}</button>`
-          + `<button type="button" data-mpx-mode="realtime">${L('Live', '实时')}</button>`
+        `<p class="mpx-section">${t('When the agent looks')}</p>`,
+        `<div class="mpx-field"><label>${t('Mode')}</label><div class="mpx-seg">`
+          + `<button type="button" data-mpx-mode="manual">${t('Manual')}</button>`
+          + `<button type="button" data-mpx-mode="realtime">${t('Live')}</button>`
           + '</div></div>',
         '<div data-mpx-live-rows>',
-        `<div class="mpx-field"><label>${L('Every N strokes', '每 N 笔触发')}</label>`
+        `<div class="mpx-field"><label>${t('Every N strokes')}</label>`
           + '<input type="number" data-mpx-strokes min="1" max="50" step="1"></div>',
-        `<div class="mpx-field"><label>${L('Pixel change at least (%)', '像素变化阈值 (%)')}</label>`
+        `<div class="mpx-field"><label>${t('Pixel change at least (%)')}</label>`
           + '<input type="number" data-mpx-change min="0" max="100" step="1"></div>',
-        `<div class="mpx-field"><label>${L('Minimum gap (s)', '最短间隔 (秒)')}</label>`
+        `<div class="mpx-field"><label>${t('Minimum gap (s)')}</label>`
           + '<input type="number" data-mpx-cooldown min="0" max="600" step="5"></div>',
-        `<p class="mpx-hint">${L('Brush events collect in an inbox; the agent is asked to look only when a threshold is met and the gap has passed, and it is asked for a thumbnail first — a closer look is its own call. Apply per stroke: every stroke, or the pixel difference from the previous frame.', '画笔事件先进收件箱，达到任一阈值且过了冷却时间，才会让模型看一眼；看的时候先给缩略图（glance），要不要细看由模型自己决定。像素差是按 64×64 降采样后与上一帧比较得出的。')}</p>`,
+        `<p class="mpx-hint">${t('Brush events collect in an inbox; the agent is asked to look only when a threshold is met and the gap has passed, and it is asked for a thumbnail first — a closer look is its own call. Apply per stroke: every stroke, or the pixel difference from the previous frame.')}</p>`,
         '</div>',
-        `<p class="mpx-hint">${L('Resizing resamples the painting and resets the undo history.', '调整分辨率会重新采样画面并重置撤销历史。')}</p>`,
+        `<p class="mpx-hint">${t('Resizing resamples the painting and resets the undo history.')}</p>`,
         '<div class="mpx-actions">',
-        `<button type="button" data-mpx-cancel>${L('Cancel', '取消')}</button>`,
-        `<button type="button" data-mpx-apply>${L('Apply', '应用')}</button>`,
+        `<button type="button" data-mpx-cancel>${t('Cancel')}</button>`,
+        `<button type="button" data-mpx-apply>${t('Apply')}</button>`,
         '</div></div>',
       ].join('');
       // Overlay a sibling of the scrolling body so it covers the panel viewport,
@@ -898,22 +968,22 @@ __MPX_VENDOR__
       const recordDirOut = modal.querySelector('[data-mpx-record-dir]');
       // The folder is chosen, never typed: the host's own picker returns a real path.
       let draftRecordDir = '';
-      const recordDirDefault = L('Default: the harness home, in canvas-recordings.', '默认：harness home 下的 canvas-recordings。');
+      const recordDirDefault = t('Default: the harness home, in canvas-recordings.');
       function renderRecordDir() {
         // Show the folder that would actually open, not a prose stand-in for it.
         const fallback = (controller.settingsMeta && controller.settingsMeta.defaultDir) || '';
         if (draftRecordDir) recordDirOut.textContent = draftRecordDir;
-        else recordDirOut.textContent = fallback ? L('Default: ', '默认：') + fallback : recordDirDefault;
+        else recordDirOut.textContent = fallback ? t('Default: ') + fallback : recordDirDefault;
       }
       recordOpenBtn.addEventListener('click', async () => {
         recordOpenBtn.disabled = true;
         const before = recordOpenBtn.textContent;
-        recordOpenBtn.textContent = L('Opening…', '打开中…');
+        recordOpenBtn.textContent = t('Opening…');
         try {
           const reply = await openRecordFolder(draftRecordDir);
           if (!reply || !reply.ok) {
-            recordDirOut.textContent = L('Could not open the folder: ', '打开文件夹失败：')
-              + ((reply && reply.reason) || L('the host did not answer', '宿主没有回应'));
+            recordDirOut.textContent = t('Could not open the folder: ')
+              + ((reply && reply.reason) || t('the host did not answer'));
           }
         } finally {
           recordOpenBtn.disabled = false;
@@ -924,21 +994,18 @@ __MPX_VENDOR__
         const picker = controller.ctx && controller.ctx.uiWorkspace;
         if (!picker || typeof picker.pickDirectory !== 'function') {
           // Say it in the row the click came from: a panel notice would sit behind this dialog.
-          recordDirOut.textContent = L(
-            'This host exposes no folder picker; recordings go to the harness home.',
-            '这个宿主没有可用的目录选择器，录制会落到默认目录。',
-          );
+          recordDirOut.textContent = t('This host exposes no folder picker; recordings go to the harness home.');
           return;
         }
         try {
-          recordDirOut.textContent = L('Opening the folder picker…', '正在打开目录选择器…');
+          recordDirOut.textContent = t('Opening the folder picker…');
           const picked = await picker.pickDirectory();
           if (typeof picked === 'string' && picked) {
             draftRecordDir = picked;
           }
           renderRecordDir();
         } catch (error) {
-          recordDirOut.textContent = L('The folder picker failed: ', '目录选择器出错：') + String(error && error.message || error);
+          recordDirOut.textContent = t('The folder picker failed: ') + String(error && error.message || error);
         }
       });
       recordClearBtn.addEventListener('click', () => {
@@ -1028,7 +1095,7 @@ __MPX_VENDOR__
         const canvas = api.state().canvas;
         const text = canvas.width + '×' + canvas.height;
         label.textContent = text;
-        button.title = L('Canvas size and settings', '画布尺寸与设置') + ' — ' + text + ' px';
+        button.title = t('Canvas size and settings') + ' — ' + text + ' px';
         try {
           bodyEl.style.setProperty('--mpx-canvas-width', api.currentWidth() + 'px');
         } catch (_error) {}
@@ -1038,11 +1105,12 @@ __MPX_VENDOR__
         const settings = controller.settings;        const live = settings.mode === 'realtime';
         pill.setAttribute('data-live', String(live));
         pill.setAttribute('aria-pressed', String(live));
-        modeLabel.textContent = live ? L('Live', '实时') : L('Manual', '手动');
+        modeLabel.textContent = live ? t('Live') : t('Manual');
         pill.title = live
-          ? L(`The agent looks on its own: every ${settings.minStrokes} strokes or ${settings.minPixelChange}% change, at most every ${settings.cooldownSec}s`,
-            `模型会自己看画：每 ${settings.minStrokes} 笔或变化 ${settings.minPixelChange}%，最快每 ${settings.cooldownSec} 秒一次`)
-          : L('Click for live mode: the agent looks while you paint', '点击切到实时：模型会在你画的过程中自己看');
+          ? t('The agent looks on its own: every {strokes} strokes or {change}% change, at most every {cooldown}s', {
+            strokes: settings.minStrokes, change: settings.minPixelChange, cooldown: settings.cooldownSec,
+          })
+          : t('Click for live mode: the agent looks while you paint');
         for (const modeButton of modeButtons) {
           modeButton.setAttribute('aria-pressed', String(modeButton.dataset.mpxMode === draftMode));
         }
@@ -1108,13 +1176,7 @@ __MPX_VENDOR__
 
       reloadMenu.querySelector('[data-mpx-reload-panel]').addEventListener('click', () => {
         reloadMenu.hidden = true;
-        try { api.saveNow() } catch (_error) {}
-        const host = controller.rootEl.parentNode;
-        stopSync(controller);
-        try { api.dispose() } catch (_error) {}
-        try { controller.rootEl.remove() } catch (_error) {}
-        CACHE = null;
-        if (host) mountCanvas(host, controller.sessionId, controller.ctx);
+        remountPanel(controller);
       });
 
       reloadMenu.querySelector('[data-mpx-reload-page]').addEventListener('click', () => {
@@ -1141,8 +1203,8 @@ __MPX_VENDOR__
         controller.inbox.change = 0;
         refreshMode();
         panelNotice(bodyEl, next === 'realtime'
-          ? L('Live mode: the agent will look while you paint.', '实时模式：模型会在你画的过程中自己看。')
-          : L('Manual mode: the agent looks only when you ask.', '手动模式：只有你开口时模型才会看。'));
+          ? t('Live mode: the agent will look while you paint.')
+          : t('Manual mode: the agent looks only when you ask.'));
       });
 
       range.addEventListener('input', () => {
@@ -1184,13 +1246,12 @@ __MPX_VENDOR__
           if (result && result.ok) {
             refreshLabel();
             if (result.resized) {
-              panelNotice(bodyEl, L(
-                `Canvas resized to ${result.canvas.width}×${result.canvas.height} px. Undo history was reset.`,
-                `画布已调整为 ${result.canvas.width}×${result.canvas.height} px，撤销历史已重置。`,
-              ));
+              panelNotice(bodyEl, t('Canvas resized to {width}×{height} px. Undo history was reset.', {
+                width: result.canvas.width, height: result.canvas.height,
+              }));
             }
           } else if (result && result.reason === 'failed') {
-            panelNotice(bodyEl, L('Resize failed; the canvas is unchanged.', '调整失败，画布未变。'));
+            panelNotice(bodyEl, t('Resize failed; the canvas is unchanged.'));
           }
         });
       });
@@ -1215,8 +1276,7 @@ __MPX_VENDOR__
       function openAsk() {
         placeAskPop();
         askInput.value = '';
-        askInput.placeholder = L('What do you want to tell the model about this painting?',
-          '想跟模型说什么？（会附上当前画面）');
+        askInput.placeholder = t('What do you want to tell the model about this painting?');
         askPop.hidden = false;
         try { askInput.focus({ preventScroll: true }) } catch (_error) { askInput.focus() }
       }
@@ -1245,14 +1305,14 @@ __MPX_VENDOR__
               controller.inbox.change = 0;
               controller.inbox.lastTrigger = Date.now();
               panelNotice(bodyEl, result.attached
-                ? L('Sent with the canvas attached.', '已发送，画布已附上。')
-                : L('Sent, but the canvas could not be attached.', '已发送，但画布没能附上。'));
+                ? t('Sent with the canvas attached.')
+                : t('Sent, but the canvas could not be attached.'));
             } else {
-              panelNotice(bodyEl, L('Could not reach the agent: ', '没能送到模型：')
+              panelNotice(bodyEl, t('Could not reach the agent: ')
                 + String(result && result.reason || 'unknown'));
             }
           })
-          .catch((error) => panelNotice(bodyEl, L('Send failed: ', '发送失败：')
+          .catch((error) => panelNotice(bodyEl, t('Send failed: ')
             + String(error && error.message || error)))
           .finally(() => { sending = false; askSend.disabled = false; });
       }
@@ -1279,10 +1339,10 @@ __MPX_VENDOR__
 
       // The panel's own language switch rewrites the app's copy; match it here so the
       // chrome never disagrees with the toolbars next to it.
-      function relabelChrome(lang) {
-        askButton.textContent = withLang(lang, 'Show the fish', '让肥鱼看看');
-        reloadButton.title = withLang(lang, 'Reload (the painting is saved first)', '刷新（会先保存画面）');
-        reloadButton.setAttribute('aria-label', withLang(lang, 'Reload', '刷新'));
+      function relabelChrome() {
+        askButton.textContent = t('Show the fish');
+        reloadButton.title = t('Reload (the painting is saved first)');
+        reloadButton.setAttribute('aria-label', t('Reload'));
       }
 
       // ---- bypass recording: the panel's own button, and the surface the agent uses
@@ -1336,8 +1396,8 @@ __MPX_VENDOR__
         recordButton.setAttribute('data-recording', busy ? 'true' : 'false');
         recordButton.setAttribute('data-phase', state.phase);
         recordButton.title = busy
-          ? L('Stop and save (' + Math.round(state.elapsedMs / 1000) + 's)', '停止并保存（已录 ' + Math.round(state.elapsedMs / 1000) + ' 秒）')
-          : L('Record', '录制');
+          ? t('Stop and save ({seconds}s)', { seconds: Math.round(state.elapsedMs / 1000) })
+          : t('Record');
         recordButton.setAttribute('aria-label', recordButton.title);
       }
 
@@ -1366,15 +1426,15 @@ __MPX_VENDOR__
         const reply = await saveClipToHost(blob, controller.settings);
         if (reply && reply.ok) {
           showRecToast(
-            L('Saved · ' + kb + ' KB', '已保存 · ' + kb + ' KB'),
+            t('Saved · {kb} KB', { kb }),
             2600,
-            { label: L('Open folder', '打开文件夹'), run: () => { openRecordFolder(reply.dir || (controller.settings || {}).recordDir || ''); } },
+            { label: t('Open folder'), run: () => { openRecordFolder(reply.dir || (controller.settings || {}).recordDir || ''); } },
           );
           return;
         }
         downloadRecording(blob);
         showRecToast(
-          L('Saved to the download folder · ' + kb + ' KB', '已保存到下载文件夹 · ' + kb + ' KB'),
+          t('Saved to the download folder · {kb} KB', { kb }),
           2600,
         );
       }
@@ -1384,31 +1444,53 @@ __MPX_VENDOR__
           const started = recorder.start();
           if (!started.ok) {
             showRecToast(started.reason === 'unsupported'
-              ? L('This browser has no MediaRecorder', '这个浏览器不支持录制')
-              : L('Cannot start recording', '无法开始录制'), 2600);
+              ? t('This browser has no MediaRecorder')
+              : t('Cannot start recording'), 2600);
             refreshRecord();
             return;
           }
           window.clearInterval(recordTimer);
           recordTimer = window.setInterval(refreshRecord, 500);
           refreshRecord();
-          showRecToast(L('● Recording', '● 录制中'), 2000);
+          showRecToast(t('● Recording'), 2000);
           return;
         }
         window.clearInterval(recordTimer);
         recordTimer = 0;
-        recordButton.textContent = L('… Saving', '… 生成中');
-        showRecToast(L('■ Saving the clip…', '■ 正在保存…'), 9000);
+        recordButton.textContent = t('… Saving');
+        showRecToast(t('■ Saving the clip…'), 9000);
         const result = await recorder.stop();
         refreshRecord();
         if (result && result.ok && result.blob && result.bytes > 0) {
           await saveRecording(result.blob);
         } else {
-          showRecToast(L('Nothing was captured — keep the panel visible while painting', '没抓到画面——录制时别把面板切走'), 3200);
+          showRecToast(t('Nothing was captured — keep the panel visible while painting'), 3200);
         }
       });
 
       return { refreshLabel, refreshMode, relabelChrome };
+    }
+
+    /**
+     * Tear the panel down and mount it again on the same host.
+     *
+     * The labels are baked into the DOM when it is built, so a language change needs a fresh
+     * build; the painting itself is safe in localStorage and on the host before we drop it.
+     * @param {object} controller - the mounted panel.
+     */
+    function remountPanel(controller) {
+      try { controller.api.saveNow() } catch (_error) {}
+      const host = controller.rootEl.parentNode;
+      stopSync(controller);
+      try { controller.api.dispose() } catch (_error) {}
+      try { controller.rootEl.remove() } catch (_error) {}
+      CACHE = null;
+      if (host) mountCanvas(host, controller.sessionId, controller.ctx);
+    }
+
+    /** Rebuild the open panel after the app's language changed; a closed one re-mounts later. */
+    function remountForLocale() {
+      if (CACHE) remountPanel(CACHE);
     }
 
     // A fresh origin (new port after a restart) has no localStorage, so the panel
@@ -1496,19 +1578,19 @@ __MPX_VENDOR__
             window.setTimeout(() => { try { loader.remove() } catch (_error) {} }, 300);
           }
           try { controller.settingsHandle.refreshLabel() } catch (_error) {}
-          try { controller.settingsHandle.relabelChrome(controller.api.getLanguage()) } catch (_error) {}
+          try { controller.settingsHandle.relabelChrome() } catch (_error) {}
           // Some data-i18n nodes are missed by the app's own pass; fill them now and
           // again whenever the panel's language switch runs.
           try { controller.api.translateDom() } catch (_error) {}
-          try { renderInstructions(controller.bodyEl, controller.api.getLanguage()) } catch (_error) {}
+          try { renderInstructions(controller.bodyEl) } catch (_error) {}
           try {
             const langButton = controller.bodyEl.querySelector('#langBtn');
             if (langButton) {
               langButton.addEventListener('click', () => {
                 window.setTimeout(() => {
                   try { controller.api.translateDom() } catch (_e) {}
-                  try { renderInstructions(controller.bodyEl, controller.api.getLanguage()) } catch (_e) {}
-                  try { controller.settingsHandle.relabelChrome(controller.api.getLanguage()) } catch (_e) {}
+                  try { renderInstructions(controller.bodyEl) } catch (_e) {}
+                  try { controller.settingsHandle.relabelChrome() } catch (_e) {}
                 }, 0);
               });
             }
@@ -1562,7 +1644,7 @@ __MPX_VENDOR__
             try {
               const box = window.document.createElement('div');
               box.setAttribute('style', 'padding:14px;color:#e8eaed;font:12px/1.6 system-ui;white-space:pre-wrap;overflow:auto');
-              box.textContent = L('[canvas] mount failed: ', '[画布] 挂载失败：')
+              box.textContent = t('[canvas] mount failed: ')
                 + (error && (error.stack || error.message) || String(error));
               host.appendChild(box);
             } catch (_renderError) {}
@@ -1588,8 +1670,8 @@ __MPX_VENDOR__
       const [hover, setHover] = React.useState(false);
       return h('button', {
         type: 'button',
-        title: L('Open the studio', '打开画室'),
-        'aria-label': L('Chubby fish studio', '肥鱼画室'),
+        title: t('Open the studio'),
+        'aria-label': t('Chubby fish studio'),
         onMouseEnter: () => setHover(true),
         onMouseLeave: () => setHover(false),
         onClick: () => { try { ctx.sidebarRight.openTab(TAB_KIND) } catch (error) { console.warn('[mpx] open failed', error) } },
@@ -1604,24 +1686,32 @@ __MPX_VENDOR__
       },
       h('span', { style: { fontSize: wide ? '15px' : '16px', lineHeight: '1', flex: 'none' } }, '🐟'),
       wide ? h('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
-        L('Chubby fish studio', '肥鱼画室')) : null);
+        t('Chubby fish studio')) : null);
     }
 
     // ------------------------------------------------------------------ plugin
 
     return {
-      inject: ['slots', 'sidebarRightTabs', 'sidebarRight', 'uiWorkspace'],
+      inject: ['slots', 'sidebarRightTabs', 'sidebarRight', 'uiWorkspace', 'locale'],
       apply(ctx) {
+        // The Client locale service owns the language: the panel's own strings come from
+        // these dictionaries, so a Settings change reaches them without a page reload.
+        ctx.effect(() => ctx.locale.register(NAMESPACE, { zh: DICT_ZH, en: DICT_EN }), 'chubby-fish-studio: dictionary');
+        localeTranslate = ctx.locale.bind(NAMESPACE);
+        ctx.effect(() => (typeof ctx.locale.subscribe === 'function'
+          ? ctx.locale.subscribe(() => remountForLocale())
+          : ctx.on('locale/change', () => remountForLocale())), 'chubby-fish-studio: locale subscription');
+
         ctx.effect(() => ctx.sidebarRightTabs.register({
           id: TAB_ID,
           kind: TAB_KIND,
           keepMounted: true,
-          title: () => L('Chubby fish studio', '肥鱼画室'),
+          title: () => t('Chubby fish studio'),
           guide: [{
             id: 'canvas',
             order: 40,
-            title: () => L('Chubby fish studio', '肥鱼画室'),
-            description: () => L('Paint with the fish on one canvas', '和肥鱼共用一张画布'),
+            title: () => t('Chubby fish studio'),
+            description: () => t('Paint with the fish on one canvas'),
           }],
         }), 'mixbox-palette: tab type');
 
