@@ -241,6 +241,7 @@ function __mpxState() {
     const livePainter = __mpxPainter();
     return {
         canvas: { width: mixCanvas.width, height: mixCanvas.height },
+        mask: __mpxMask,
         engine: currentEngine,
         tool: isRectSelectMode ? 'rectSelect' : (isEyedropperMode ? 'eyedropper' : currentTool),
         brush: {
@@ -631,6 +632,7 @@ async function __mpxResizeTo(width) {
             && livePainter.getHistoryLength() <= 1;
         try { livePainter.flush(); } catch (_error) {}
         await _commitResize(target);
+        if (__mpxMask) __mpxSetMask(__mpxMask);
         if (untouched) {
             const fresh = __mpxPainter();
             if (fresh) {
@@ -904,6 +906,7 @@ return {
     el: mixCanvas,
     snapshot: __mpxSnapshot,
     state: __mpxState,
+    setMask: __mpxSetMask,
     stroke: __mpxStroke,
     sample: __mpxSample,
     saveNow: __mpxSaveNow,
@@ -936,6 +939,9 @@ return {
 };
 `
 
+vendor = replaceOnce(vendor, 'gl.shaderSource(shader, source);', 'gl.shaderSource(shader, type === gl.FRAGMENT_SHADER ? __mpxMaskShader(source) : source);', 'paint mask shader')
+vendor = replaceOnce(vendor, '        return program;', '        __mpxRegisterMask(gl, program);\n        return program;', 'paint mask uniforms')
+vendor += '\n' + readFileSync(join(HERE, 'mask-runtime.js'), 'utf8') + '\n'
 vendor += API_TAIL
 
 // ------------------------------------------------------------------ css

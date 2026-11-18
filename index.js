@@ -11,6 +11,37 @@
  *   POST /mpx/canvas/render  { sessionId, id, png }   <- a glance or a zoom
  */
 
+// A spatially smooth displacement keeps neighbouring marks together, including
+// the two ends of a closed outline and adjacent turns of a filled ellipse.
+function wobble(points, amount, anchorEnds, minStep = 0) {
+  if (!amount || points.length < 2) return points
+  const phase = Array.from({length:4}, () => Math.random() * 2 * Math.PI)
+  const scale = Math.max(8, amount * 3)
+  const result = []
+  const first = points[0], last = points[points.length-1]
+  function displaced(p) {
+    const x = p[0]/scale, y = p[1]/scale
+    const fade = anchorEnds ? Math.min(1, Math.hypot(p[0]-first[0],p[1]-first[1])/scale,
+      Math.hypot(p[0]-last[0],p[1]-last[1])/scale) : 1
+    const dx = 0.55*Math.sin(x+0.7*y+phase[0]) + 0.45*Math.sin(0.45*x-y+phase[1])
+    const dy = 0.55*Math.sin(0.8*x-y+phase[2]) + 0.45*Math.sin(x+0.35*y+phase[3])
+    return [p[0]+amount*fade*dx, p[1]+amount*fade*dy, ...p.slice(2)]
+  }
+  result.push(displaced(first))
+  for (let i=1; i<points.length; i++) {
+    const a=points[i-1], b=points[i]
+    const steps=Math.min(512, Math.ceil(Math.hypot(b[0]-a[0], b[1]-a[1])/Math.max(scale*0.75,minStep)))
+    for (let j=1; j<steps; j++) {
+      const t=j/steps
+      const p=[a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t]
+      if (a.length>2 || b.length>2) p.push((a[2]??1)*(1-t)+(b[2]??1)*t)
+      result.push(displaced(p))
+    }
+    result.push(displaced(b))
+  }
+  return result
+}
+
 const PUSH_PATH = '/mpx/canvas/push'
 const STREAM_PATH = '/mpx/canvas/stream'
 const NUDGE_PATH = '/mpx/canvas/nudge'
@@ -144,11 +175,13 @@ const CANVAS_PROMPT = [
   'You cannot paint blind: `canvas_draw` refuses strokes until you have looked at the whole canvas this session, and again if the canvas has changed since that look (the user painted, undid, cleared, or the panel reloaded). After a refusal, look (a glance is enough), then draw — never retry it unchanged. Your own strokes and a confirmed clear let you continue painting directly.',
   '`canvas_draw` paints strokes and also carries `smudge` plus the undo/redo/clear actions; every stroke lands in the user undo stack. Points are canvas pixels, or fractions of the canvas when every value is in 0-1. `size` is the half-width on the wash brushes (they spread about twice it) and about the full width on circle/flat/soft.',
   'Keep a call to a handful of strokes, about eight: a long or wide call that gets mangled costs the whole batch, while small calls lose only their own. A path can be the compact string "0.36,0.60 0.37,0.65", sturdier for long paths, and curves are curves — "… q cx,cy x,y" is one arc.',
+  'canvas_mask can select a region for brush and smudge on the shared canvas. Its edge jitter is sampled once per selection; set jitter to 0 for precision.',
+  'When painting an illustration, aim for a hand-drawn feel that suits the subject. Direction, pressure and the rhythm of repeated marks can do as much as a little contour jitter.',
   'For a large shape, sketching its sweep and silhouette first can help. See canvas_guide for the thumbnail check. Use `ellipse: [cx, cy, rx, ry]` for an oval, `polygon` for a filled outline, `path` with `fill: true` for a curved silhouette, and `mirror: "x"` for a symmetrical pair.',
   'Depth comes from strength and a second pass, not from wetness: 20 is barely a stain, 77 lands about 60% of the pigment, only near 100 does the colour read as itself. Wetness is how far the edge travels (100 bleeds, 20 holds), so lower it to sharpen a shape rather than to darken it — and a watercolor at low wetness goes patchy, not solid.',
   'The drip run-off is a separate knob from wetness: per stroke `drip: "off"` suppresses it, `"on"` forces it, `"auto"` leaves it to the device and the panel toggle, and `dripAmount` 0-2 (1 is the default) sets how often drops spawn and how many are allowed at once. Drops only form at wetness 50 or more, on a `watercolor` stroke — so push wetness up first, then season with dripAmount rather than flooding the picture. `dripAmount` is density, not reach: how far a drop runs is fixed by the brush size and the wetness, so for longer runs use a larger brush or wetter paint, not a bigger amount.',
   'Possible brush choices include `watercolor` for atmosphere, `circle`/`soft` for clean opaque shapes, `flat` for blocks or (small size, `spacing` 1, strength 75-90) for pencil lines, `splatter` for grain, `dry` for broken bristle texture. The brush sheet gives example settings. No setting turns a watercolor white opaque over dark, and circle/flat/soft cannot make a wash.',
-  'Seven tools are always available; four more (`canvas_guide`, `canvas_brushes`, `canvas_notes`, `canvas_sample`) load on demand so they do not cost every request — call `canvas_tools` with `load: "guide"` (or "brushes", "notes", "sample") and that tool is usable from your next step. The guide offers suggestions — layers, light, stroke intent, judging, when to repaint.',
+  'Eight tools are always available; four more (`canvas_guide`, `canvas_brushes`, `canvas_notes`, `canvas_sample`) load on demand so they do not cost every request — call `canvas_tools` with `load: "guide"` (or "brushes", "notes", "sample") and that tool is usable from your next step. The guide offers suggestions — layers, light, stroke intent, judging, when to repaint.',
   '`canvas_record` films the drawing as a webm: `start` before the strokes, `stop` after, and the clip lands under the harness home with its path returned. It reads the canvas stream, not the undo stack, so it captures the whole painting and not the last 50 frames; the panel has to be open.',
   'Pressure narrows and pales at once, so a silhouette drawn with tapered strokes comes out weak: full pressure can help establish a solid shape, and a taper can add finer ends. The pressureCurve affects how quickly the mark narrows.',
   'When the user asks for help with painting, look first, name one concrete problem, and demonstrate with one short stroke instead of a long description.',
@@ -230,6 +263,12 @@ const PAINT_GUIDE = [
   "- Smudge (`tool: \"smudge\"`) works like a fingertip moving pigment already on the canvas. A short stroke across adjoining colours can mix them locally; a longer pull can leave a directional streak. Near a contour, a smaller footprint can keep its shape intact.",
   "- Watercolor at high wetness can give a broad wash with a pooled edge. Dry can suggest broken fibres or stone, and splatter can suggest spray, grain or stars.",
   "- Pressure and taper can give a hair tip or a fold a lighter ending. Even pressure can suit a firm silhouette or a deliberately uniform graphic line.",
+  "",
+  "- For a hand-drawn contour, a little jitter (about 0.5-1.5 canvas pixels on a long hair strand or garment edge) can help. A small eye highlight or a precise join may read better with zero jitter.",
+  "## A hand-drawn feel",
+  "- For a hand-drawn finish, you might let a long contour swell through a turn and ease off toward its tip. A quiet, steady edge beside a more expressive stroke gives both a purpose.",
+  "- Related marks can share a direction while varying slightly in length, spacing or pressure. For hair or folds, a few deliberate groups often read more naturally than evenly spaced parallel lines.",
+  "- A brush-textured or gently uneven silhouette can suit cloth, hair or leaves. A selection with a little edge jitter can carry that same character through several colour passes; the displayed edge stays fixed until the selection changes.",
   "",
   "## Checking the result",
   "- A glance shows whether the masses read together. A zoom can help judge one edge, eye or colour transition.",
@@ -1474,6 +1513,50 @@ export function apply(ctx) {
     })
 
     scope.tools.register({
+      name: 'canvas_mask',
+      description: 'Set a shared painting selection on this canvas, inspect it or clear it. Brush and smudge writes are clipped, including their soft edges. The dashed preview is not exported. Clear/undo/redo still act on the whole canvas. Selection lasts until released or the panel reloads. Jitter is sampled once when setting it.',
+      parameters: {type:'object',additionalProperties:false,properties:{
+        action:{type:'string',enum:['set','clear','status']},
+        rect:{type:'array',items:{type:'number'},description:'[x1,y1,x2,y2], opposite corners'},
+        polygon:{type:'array',items:{type:'array',items:{type:'number'}},description:'3–48 outline vertices, e.g. [[100,100],[200,120],[150,180]]'},
+        unit:{type:'string',enum:['pixels','ratio']},
+        jitter:{type:'number',minimum:0,maximum:20,description:'Edge wobble in canvas pixels, default 1. Use 0 for a precise edge.'}
+      }},
+      output:{schema:{type:'object',additionalProperties:true},render(_args,v){return [{type:'text',text:v.text}]}},
+      async execute(args,exec) {
+        const found = await snapshotFor(exec)
+        if (!found) return {text:CARD_TEXT.notOpen}
+        const {entry,sessionId} = found
+        const action = args.action || 'status'
+        if (action === 'status') return {text:JSON.stringify({unit:'ratio',polygon:entry.meta?.mask || null})}
+        let mask = null
+        if (action === 'set') {
+          let vertices = args.polygon
+          if (args.rect && !vertices && args.rect.length === 4) {
+            const [x,y,r,b] = args.rect
+            vertices = [[x,y],[r,y],[r,b],[x,b]]
+          } else if (args.rect) return {text:'Supply one rect or polygon.'}
+          if (!Array.isArray(vertices) || vertices.length<3 || vertices.length>48 || !vertices.every(p=>Array.isArray(p)&&p.length===2&&p.every(Number.isFinite))) return {text:'Expected 3–48 finite coordinate pairs.'}
+          const {width,height} = entry.meta?.canvas || {}
+          if (!width || !height) return {text:'Canvas dimensions unavailable.'}
+          const ratio = args.unit === 'ratio' || (!args.unit && vertices.every(p=>p.every(v=>v>=0&&v<=1)))
+          const pts = vertices.map(([x,y])=>ratio?[x*width,y*height]:[x,y])
+          if (pts.some(([x,y])=>x<0||x>width||y<0||y>height)) return {text:'Keep the selection vertices inside the canvas.'}
+          const area = pts.reduce((sum,p,i)=>{const q=pts[(i+1)%pts.length];return sum+p[0]*q[1]-p[1]*q[0]},0)
+          if (Math.abs(area)<1) return {text:'The selection must enclose an area.'}
+          const amount = Math.max(0, Math.min(20, args.jitter ?? 1))
+          const closed = [...pts,pts[0]]
+          const perimeter = pts.reduce((n,p,i)=>n+Math.hypot(p[0]-closed[i+1][0],p[1]-closed[i+1][1]),0)
+          const edge = wobble(closed,amount,false,perimeter/(64-pts.length)).slice(0,-1)
+          mask=edge.map(([x,y])=>[Math.max(0,Math.min(1,x/width)),Math.max(0,Math.min(1,y/height))])
+        } else if (action !== 'clear') return {text:'Expected set, clear or status.'}
+        const ok = await dispatchAndWait(sessionId,[{type:'mask',mask}])
+        if (!ok || JSON.stringify(snapshots.get(sessionId)?.meta?.mask ?? null)!==JSON.stringify(mask)) return {text:'Selection change not confirmed; inspect canvas_mask status.'}
+        return {text: mask ? 'Selection active. Brush and smudge are clipped to the displayed boundary.' : 'Selection cleared.'}
+      }
+    })
+
+    scope.tools.register({
       name: 'canvas_state',
       description: 'Read the user painting canvas state (size, brush, palette, colours, undo position) without sending a picture. Cheaper than canvas_glance, but it does not count as having looked — use canvas_look or canvas_glance for that.',
       parameters: { type: 'object', additionalProperties: false, properties: {} },
@@ -1743,7 +1826,7 @@ export function apply(ctx) {
                 },
                 jitter: {
                   type: 'number',
-                  description: 'Pixels of wobble (0-20) on a generated shape path, to break a mechanically even rim. Leave it off for a crisp line.',
+                  description: 'Optional smooth wobble in canvas pixels (0-20) for lines, curves and shape outlines. Try 0.5-1.5 on long ink lines; zero keeps the original path.',
                 },
                 mirror: {
                   type: 'string',
@@ -1843,6 +1926,7 @@ export function apply(ctx) {
             out.push([
               u * u * from[0] + 2 * u * t * control[0] + t * t * to[0],
               u * u * from[1] + 2 * u * t * control[1] + t * t * to[1],
+              ...([from,control,to].some(p=>p.length>2) ? [u*u*(from[2]??1)+2*u*t*(control[2]??1)+t*t*(to[2]??1)] : []),
             ])
           }
           return out
@@ -1865,6 +1949,7 @@ export function apply(ctx) {
             out.push([
               u * u * u * from[0] + 3 * u * u * t * controlA[0] + 3 * u * t * t * controlB[0] + t * t * t * to[0],
               u * u * u * from[1] + 3 * u * u * t * controlA[1] + 3 * u * t * t * controlB[1] + t * t * t * to[1],
+              ...([from,controlA,controlB,to].some(p=>p.length>2) ? [u*u*u*(from[2]??1)+3*u*u*t*(controlA[2]??1)+3*u*t*t*(controlB[2]??1)+t*t*t*(to[2]??1)] : []),
             ])
           }
           return out
@@ -2151,16 +2236,11 @@ export function apply(ctx) {
         const plansFor = (stroke) => {
           const polygon = readPolygon(stroke)
           const jitter = Math.max(0, Math.min(20, Number(stroke?.jitter) || 0))
-          const shake = (plans) => (jitter > 0
-            ? plans.map((plan) => plan.map((point) => [
-              point[0] + (Math.random() * 2 - 1) * jitter,
-              point[1] + (Math.random() * 2 - 1) * jitter,
-            ]))
-            : plans)
           if (polygon) {
-            const fill = polygonFill(polygon, Number(stroke.size) || Number(metaObject.brush?.size) || 40)
+            const outline = jitter ? wobble([...polygon, polygon[0]], jitter, false) : polygon
+            const fill = polygonFill(outline, Number(stroke.size) || Number(metaObject.brush?.size) || 40)
             stroke.size = fill.size
-            return fill.points.length ? shake([fill.points]) : []
+            return fill.points.length ? [fill.points] : []
           }
           const { raw, curved, asRatio } = readStroke(stroke)
           let clipped = false
@@ -2183,7 +2263,7 @@ export function apply(ctx) {
           if (wantsSmoothing) points = smoothPoints(points, curved ? 1 : 2)
           const taper = ['in', 'out', 'both'].includes(stroke?.taper) ? stroke.taper : undefined
           if (taper) points = applyTaper(points, taper)
-          return curved ? shake([points]) : [points]
+          return [wobble(points, jitter, !stroke.ellipse || Number.isFinite(stroke.from) || Number.isFinite(stroke.to))]
         }
         const ops = strokes.flatMap((input) => {
           const stroke = { ...input }

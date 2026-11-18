@@ -279,7 +279,10 @@ __MPX_VENDOR__
         for (const op of ops) {
           if (!op || typeof op.type !== 'string') continue;
           try {
-            if (op.type === 'stroke') {
+            if (op.type === 'mask') {
+              controller.api.setMask(op.mask);
+              controller.maskRelease.hidden = !op.mask;
+            } else if (op.type === 'stroke') {
               const result = await controller.api.stroke(op.points || [], op);
               if (result && result.ok) { applied += 1; agentMutated = true; }
               // Space the strokes so they read as separate marks, and so the painter has
@@ -784,6 +787,12 @@ __MPX_VENDOR__
       askButton.type = 'button';
       askButton.className = 'mpx-ask-btn';
       askButton.textContent = L('Show the fish', '让肥鱼看看');
+      const release = window.document.createElement('button');
+      release.type = 'button'; release.hidden = true; release.className = 'mpx-pick-btn';
+      release.textContent = L('Release selection', '解除选区');
+      release.addEventListener('click', () => { controller.api.setMask(null); release.hidden = true; schedulePush(controller,0); });
+      controller.maskRelease = release;
+      pillHost.appendChild(release);
       pillHost.appendChild(askButton);
 
       // Bypass recorder: captures the canvas while it is being painted, independent of
@@ -1518,6 +1527,8 @@ __MPX_VENDOR__
       if (controller.sessionId !== sessionId) {
         // One canvas per page: keep the drawing, re-scope persistence and state to the new session.
         controller.api.saveNow();
+        controller.api.setMask(null);
+        if (controller.maskRelease) controller.maskRelease.hidden = true;
         controller.sessionId = sessionId;
         controller.setStorage(sessionId);
         controller.api.clearCanvas();
