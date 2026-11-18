@@ -340,7 +340,18 @@ __MPX_VENDOR__
               }).catch(() => {});
               if (reply && reply.ok && op.action === 'stop') {
                 const kb = Math.round((Number(reply.bytes) || 0) / 1024);
-                if (controller.showRecToast) controller.showRecToast(L('Saved · ' + kb + ' KB', '已保存 · ' + kb + ' KB'), 2200);
+                if (controller.showRecToast) {
+                  // The agent's clip lands in the same folder as the user's own, so the
+                  // same button reaches it.
+                  controller.showRecToast(
+                    L('Saved · ' + kb + ' KB', '已保存 · ' + kb + ' KB'),
+                    2600,
+                    {
+                      label: L('Open folder', '打开文件夹'),
+                      run: () => { openRecordFolder((controller.settings || {}).recordDir || ''); },
+                    },
+                  );
+                }
               } else if (reply && reply.ok && op.action === 'start') {
                 if (controller.showRecToast) controller.showRecToast(L('● Recording', '● 录制中'), 2000);
               } else if (reply && !reply.ok && controller.showRecToast) {
@@ -535,6 +546,54 @@ __MPX_VENDOR__
 
     function saveSettings(next) {
       try { window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(next)) } catch (_error) {}
+    }
+
+    /** Read a blob as bare base64: the host writes the bytes, the browser only carries them. */
+    function blobToBase64(blob) {
+      return new Promise((resolve) => {
+        try {
+          const reader = new window.FileReader();
+          reader.onload = () => {
+            const text = String(reader.result || '');
+            const comma = text.indexOf(',');
+            resolve(comma >= 0 ? text.slice(comma + 1) : '');
+          };
+          reader.onerror = () => resolve('');
+          reader.readAsDataURL(blob);
+        } catch (_error) {
+          resolve('');
+        }
+      });
+    }
+
+    /**
+     * The panel cannot touch the disk, so its own ● recording is uploaded to the host.
+     *
+     * That is what makes the recording folder and the export format apply to the user's
+     * clips too — a browser download would always land in the download folder instead.
+     */
+    function saveClipToHost(blob, settings) {
+      return blobToBase64(blob).then((data) => {
+        if (!data) return null;
+        return fetch('/mpx/canvas/save', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            data,
+            dir: (settings && settings.recordDir) || '',
+            format: (settings && settings.recordFormat) || 'both',
+          }),
+        }).then((response) => (response.ok ? response.json() : null)).catch(() => null);
+      });
+    }
+
+    /** Ask the host to show the recording folder in Explorer / Finder. */
+    function openRecordFolder(dir) {
+      return fetch('/mpx/canvas/open', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ dir: dir || '' }),
+      }).then((response) => (response.ok ? response.json() : null)).catch(() => null);
     }
 
     // The instructions list is this panel's own copy: the app's i18n pass does not
@@ -772,6 +831,7 @@ __MPX_VENDOR__
           + `<div class="mpx-btn-row">`
           + `<button type="button" class="mpx-pick-btn" data-mpx-record-pick>${L('Choose folder…', '选择文件夹…')}</button>`
           + `<button type="button" class="mpx-pick-btn" data-mpx-record-clear>${L('Default', '用默认')}</button>`
+          + `<button type="button" class="mpx-pick-btn" data-mpx-record-open>${L('Open folder', '打开文件夹')}</button>`
           + '</div></div>',
         '<p class="mpx-hint" data-mpx-record-dir></p>',
         `<div class="mpx-field mpx-field-col"><label>${L('Export format', '导出格式')}</label>`
@@ -825,13 +885,32 @@ __MPX_VENDOR__
       const cooldownInput = modal.querySelector('[data-mpx-cooldown]');
       const recordPickBtn = modal.querySelector('[data-mpx-record-pick]');
       const recordClearBtn = modal.querySelector('[data-mpx-record-clear]');
+      const recordOpenBtn = modal.querySelector('[data-mpx-record-open]');
       const recordDirOut = modal.querySelector('[data-mpx-record-dir]');
       // The folder is chosen, never typed: the host's own picker returns a real path.
       let draftRecordDir = '';
       const recordDirDefault = L('Default: the harness home, in canvas-recordings.', '默认：harness home 下的 canvas-recordings。');
       function renderRecordDir() {
-        recordDirOut.textContent = draftRecordDir || recordDirDefault;
+        // Show the folder that would actually open, not a prose stand-in for it.
+        const fallback = (controller.settingsMeta && controller.settingsMeta.defaultDir) || '';
+        if (draftRecordDir) recordDirOut.textContent = draftRecordDir;
+        else recordDirOut.textContent = fallback ? L('Default: ', '默认：') + fallback : recordDirDefault;
       }
+      recordOpenBtn.addEventListener('click', async () => {
+        recordOpenBtn.disabled = true;
+        const before = recordOpenBtn.textContent;
+        recordOpenBtn.textContent = L('Opening…', '打开中…');
+        try {
+          const reply = await openRecordFolder(draftRecordDir);
+          if (!reply || !reply.ok) {
+            recordDirOut.textContent = L('Could not open the folder: ', '打开文件夹失败：')
+              + ((reply && reply.reason) || L('the host did not answer', '宿主没有回应'));
+          }
+        } finally {
+          recordOpenBtn.disabled = false;
+          recordOpenBtn.textContent = before;
+        }
+      });
       recordPickBtn.addEventListener('click', async () => {
         const picker = controller.ctx && controller.ctx.uiWorkspace;
         if (!picker || typeof picker.pickDirectory !== 'function') {
@@ -1210,14 +1289,36 @@ __MPX_VENDOR__
       recToast.setAttribute('aria-live', 'polite');
       shadow.appendChild(recToast);
       let recToastTimer = 0;
-      function showRecToast(text, holdMs) {
+      /**
+       * Say what just happened over the middle of the painting.
+       * @param {string} text - the line itself.
+       * @param {number} holdMs - how long it stays.
+       * @param {{ label: string, run: () => void }} [action] - an optional button inside it.
+       */
+      function showRecToast(text, holdMs, action) {
         recToast.textContent = text;
+        if (action && action.label) {
+          const pick = window.document.createElement('button');
+          pick.type = 'button';
+          pick.className = 'mpx-rec-toast-btn';
+          pick.textContent = action.label;
+          pick.addEventListener('click', () => {
+            // The click is the whole point: hide the toast first so the panel is clear.
+            recToast.setAttribute('data-on', 'false');
+            try { action.run() } catch (_error) {}
+          });
+          recToast.appendChild(pick);
+        }
         recToast.setAttribute('data-on', 'true');
         window.clearTimeout(recToastTimer);
-        recToastTimer = window.setTimeout(() => recToast.setAttribute('data-on', 'false'), holdMs || 1700);
+        // A toast carrying a button has to outlive the hand that reaches for it.
+        const hold = holdMs || 1700;
+        recToastTimer = window.setTimeout(() => recToast.setAttribute('data-on', 'false'), action ? Math.max(hold, 7000) : hold);
       }
       // The agent drives the same recorder; its start/stop announces itself here too.
       controller.showRecToast = showRecToast;
+      /** Dismiss it early: a toast sitting over the painting must not outstay its welcome. */
+      controller.hideRecToast = () => recToast.setAttribute('data-on', 'false');
 
       function refreshRecord() {
         const state = recorder.state();
@@ -1231,7 +1332,8 @@ __MPX_VENDOR__
         recordButton.setAttribute('aria-label', recordButton.title);
       }
 
-      function saveRecording(blob) {
+      /** Last resort: hand the clip to the browser's download folder. */
+      function downloadRecording(blob) {
         const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
         const url = window.URL.createObjectURL(blob);
         const link = window.document.createElement('a');
@@ -1241,6 +1343,31 @@ __MPX_VENDOR__
         link.click();
         link.remove();
         window.setTimeout(() => { try { window.URL.revokeObjectURL(url) } catch (_error) {} }, 60000);
+      }
+
+      /**
+       * Save a clip the user recorded with the ● button.
+       *
+       * The host writes it into the chosen recording folder and applies the export format,
+       * so both buttons and the agent end up in the same place; only when the host cannot
+       * take it does the browser's download folder step in.
+       */
+      async function saveRecording(blob) {
+        const kb = Math.round((blob.size || 0) / 1024);
+        const reply = await saveClipToHost(blob, controller.settings);
+        if (reply && reply.ok) {
+          showRecToast(
+            L('Saved · ' + kb + ' KB', '已保存 · ' + kb + ' KB'),
+            2600,
+            { label: L('Open folder', '打开文件夹'), run: () => { openRecordFolder(reply.dir || (controller.settings || {}).recordDir || ''); } },
+          );
+          return;
+        }
+        downloadRecording(blob);
+        showRecToast(
+          L('Saved to the download folder · ' + kb + ' KB', '已保存到下载文件夹 · ' + kb + ' KB'),
+          2600,
+        );
       }
 
       recordButton.addEventListener('click', async () => {
@@ -1266,8 +1393,7 @@ __MPX_VENDOR__
         const result = await recorder.stop();
         refreshRecord();
         if (result && result.ok && result.blob && result.bytes > 0) {
-          saveRecording(result.blob);
-          showRecToast(L('Saved · ' + Math.round(result.bytes / 1024) + ' KB', '已保存 · ' + Math.round(result.bytes / 1024) + ' KB'), 2200);
+          await saveRecording(result.blob);
         } else {
           showRecToast(L('Nothing was captured — keep the panel visible while painting', '没抓到画面——录制时别把面板切走'), 3200);
         }
@@ -1309,6 +1435,9 @@ __MPX_VENDOR__
         loadHostSettings().then((host) => {
           if (!host || !host.ok || !host.settings) return;
           controller.settings = normalizeSettings(Object.assign({}, controller.settings, host.settings));
+          // The host resolves the folder, so the dialog can show it and open it before a
+          // single clip exists.
+          controller.settingsMeta = { dir: host.dir || '', defaultDir: host.defaultDir || '' };
           saveSettings(controller.settings);
           const handle = controller.settingsHandle;
           if (handle) {
@@ -1326,6 +1455,8 @@ __MPX_VENDOR__
           const target = event.target;
           if (canvasEl && target && (target === canvasEl || (typeof canvasEl.contains === 'function' && canvasEl.contains(target)))) {
             controller.agentDirty = false;
+            // A painted stroke is the answer to a "saved" toast: get it out of the way.
+            if (controller.hideRecToast) { try { controller.hideRecToast() } catch (_error) {} }
           }
         }, true);
         controller.bodyEl.addEventListener('click', (event) => {

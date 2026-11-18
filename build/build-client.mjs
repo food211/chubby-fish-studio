@@ -1301,6 +1301,23 @@ const OVERRIDES = `
     opacity: 1;
     transform: translate(-50%, -50%) scale(1);
 }
+/* A toast that carries a button opts back into hit-testing for that button — but only
+   while it is on screen, or a hidden one would swallow painting clicks. */
+.mpx-rec-toast-btn {
+    pointer-events: none;
+    margin-left: 10px;
+    padding: 2px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.32);
+    background: rgba(255, 255, 255, 0.10);
+    color: inherit;
+    font: inherit;
+    font-size: 12px;
+    line-height: 1.4;
+    cursor: pointer;
+}
+.mpx-rec-toast[data-on="true"] .mpx-rec-toast-btn { pointer-events: auto; }
+.mpx-rec-toast-btn:hover { background: rgba(255, 255, 255, 0.22); }
 .mpx-pick-btn {
     height: 26px;
     padding: 0 10px;

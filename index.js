@@ -19,6 +19,8 @@ const SAMPLE_PATH = '/mpx/canvas/sample'
 const DONE_PATH = '/mpx/canvas/done'
 const RENDER_PATH = '/mpx/canvas/render'
 const RECORD_PATH = '/mpx/canvas/record'
+const SAVE_PATH = '/mpx/canvas/save'
+const OPEN_PATH = '/mpx/canvas/open'
 const SETTINGS_PATH = '/mpx/canvas/settings'
 const LAST_PATH = '/mpx/canvas/last'
 const DEBUG_PATH = '/mpx/canvas/debug'
@@ -380,6 +382,96 @@ async function exportRecording(file, format) {
   if (mode === 'mp4' && mp4) { try { await unlink(file) } catch { /* gone */ } }
   if (mode === 'gif' && gif) { try { await unlink(file) } catch { /* gone */ } }
   return { indexed, mp4, gif, needsFfmpeg: false }
+}
+
+/**
+ * The folder clips are written to.
+ *
+ * The panel picks it, but only an absolute path is honoured and the folder is created on
+ * demand: a typo or a folder that cannot be made falls back to the harness default rather
+ * than swallowing a recording.
+ * @param {unknown} wanted - the folder the panel asked for.
+ * @returns {Promise<string>} an existing absolute folder.
+ */
+async function prepareRecordingDir(wanted) {
+  const path = typeof wanted === 'string' ? wanted.trim() : ''
+  if (path && isAbsolute(path)) {
+    try {
+      await mkdir(path, { recursive: true })
+      return path
+    } catch { /* no such folder — keep the default below */ }
+  }
+  await mkdir(RECORD_DIR, { recursive: true })
+  return RECORD_DIR
+}
+
+/**
+ * The folder to report when nothing needs creating.
+ * @param {unknown} wanted - the folder the panel asked for.
+ * @returns {string} an absolute folder path.
+ */
+function recordingDirName(wanted) {
+  const path = typeof wanted === 'string' ? wanted.trim() : ''
+  return path && isAbsolute(path) ? path : RECORD_DIR
+}
+
+/**
+ * Write one finished recording into the recording folder and export it.
+ *
+ * Both the agent's `canvas_record` stop and the panel's own ● button land here, so the
+ * folder and the export format the user picked in the settings apply to either.
+ * @param {Buffer} bytes - the webm the panel uploaded.
+ * @param {unknown} wantedDir - the panel's recording folder.
+ * @param {unknown} format - both | webm | mp4 | gif.
+ * @returns {Promise<{ dir: string, files: string[], needsFfmpeg: boolean, indexed: boolean }>}
+ */
+async function saveRecordingClip(bytes, wantedDir, format) {
+  const dir = await prepareRecordingDir(wantedDir)
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+  const file = join(dir, `chubby-fish-${stamp}.webm`)
+  await writeFile(file, bytes)
+  const polished = await exportRecording(file, typeof format === 'string' ? format : 'both')
+  // An export-only format deletes the webm once the conversion worked, so list what is
+  // actually on disk instead of announcing a file the next step removed.
+  const files = []
+  for (const candidate of [file, polished.mp4, polished.gif]) {
+    if (!candidate) continue
+    try {
+      await stat(candidate)
+      files.push(candidate)
+    } catch { /* converted away, or the export failed */ }
+  }
+  return { dir, files, needsFfmpeg: polished.needsFfmpeg, indexed: polished.indexed }
+}
+
+/**
+ * Show a folder in the desktop's file manager.
+ *
+ * This host composes a verified opener (Explorer, Finder, xdg-open) that rejects paths it
+ * cannot map, so it is tried first; when it is missing or refuses, the platform command is
+ * spawned directly. The spawn is detached because Explorer reports a non-zero exit even
+ * when the window opened, and the panel must not sit waiting for a window.
+ * @param {import('@deepseek-ai/cordis').Context} ctx - plugin context.
+ * @param {string} dir - existing absolute folder.
+ * @returns {Promise<'host' | 'spawn'>} which opener took it.
+ */
+async function openFolder(ctx, dir) {
+  const controller = ctx.get('sessionController')
+  if (controller && typeof controller.openWorkspacePath === 'function') {
+    try {
+      await controller.openWorkspacePath({ path: dir }, AbortSignal.timeout(15000))
+      return 'host'
+    } catch { /* fall through to the platform command */ }
+  }
+  const command = process.platform === 'win32'
+    ? 'explorer.exe'
+    : process.platform === 'darwin' ? 'open' : 'xdg-open'
+  try {
+    const child = spawn(command, [dir], { detached: true, stdio: 'ignore', windowsHide: true })
+    child.on('error', () => { /* no desktop, or no such opener */ })
+    child.unref()
+  } catch { /* nothing else to try */ }
+  return 'spawn'
 }
 
 /**
@@ -838,12 +930,16 @@ export function apply(ctx) {
     path: SETTINGS_PATH,
     handler: async (req, res) => {
       if (req.method === 'GET') {
+        let settings = {}
         try {
           const parsed = JSON.parse(await readFile(SETTINGS_FILE, 'utf8'))
-          json(res, 200, { ok: true, settings: parsed && typeof parsed === 'object' ? parsed : {} })
-        } catch {
-          json(res, 200, { ok: true, settings: {} })
-        }
+          settings = parsed && typeof parsed === 'object' ? parsed : {}
+        } catch { /* first run, or a torn file: the defaults below are the answer */ }
+        // The panel shows the real folder instead of describing it, so the dialog can also
+        // offer to open it before a single clip exists.
+        let dir = recordingDirName(settings.recordDir)
+        try { dir = await prepareRecordingDir(settings.recordDir) } catch { /* report the name only */ }
+        json(res, 200, { ok: true, settings, dir, defaultDir: RECORD_DIR })
         return
       }
       if (req.method !== 'POST') { json(res, 405, { ok: false, reason: 'method' }); return }
@@ -864,6 +960,71 @@ export function apply(ctx) {
       }
     },
   }), 'mixbox-palette: canvas settings route')
+
+  /**
+   * Save the clip the panel recorded with its own ● button.
+   *
+   * The encoder runs in the browser, so the bytes can only reach the disk as an upload.
+   * Sending them here — instead of a browser download — means the recording folder and the
+   * export format the user picked apply to their own recordings too, not only the agent's,
+   * and the same folder button reaches them afterwards.
+   */
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'exact',
+    path: SAVE_PATH,
+    handler: async (req, res) => {
+      if (req.method !== 'POST') { json(res, 405, { ok: false, reason: 'method' }); return }
+      let payload
+      try {
+        payload = JSON.parse((await readBody(req, RECORD_BODY_BYTES)).toString('utf8'))
+      } catch {
+        json(res, 400, { ok: false, reason: 'bad-json' })
+        return
+      }
+      const base64 = typeof payload?.data === 'string' ? payload.data : ''
+      const bytes = base64 ? Buffer.from(base64, 'base64') : Buffer.alloc(0)
+      if (!bytes.length) { json(res, 400, { ok: false, reason: 'empty-recording' }); return }
+      try {
+        const clip = await saveRecordingClip(bytes, payload?.dir, payload?.format)
+        json(res, 200, {
+          ok: true,
+          dir: clip.dir,
+          file: clip.files[0] ?? null,
+          files: clip.files,
+          needsFfmpeg: clip.needsFfmpeg,
+          indexed: clip.indexed,
+        })
+      } catch (error) {
+        json(res, 500, { ok: false, reason: String(error && error.message || error) })
+      }
+    },
+  }), 'mixbox-palette: canvas clip save route')
+
+  /**
+   * Show the recording folder in the user's file manager.
+   *
+   * The panel runs in the browser and can neither list nor open a local folder, so a click
+   * on 打开文件夹 comes here: the folder is created if the very first clip has not landed
+   * yet, then handed to the desktop.
+   */
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'exact',
+    path: OPEN_PATH,
+    handler: async (req, res) => {
+      if (req.method !== 'POST') { json(res, 405, { ok: false, reason: 'method' }); return }
+      let payload = {}
+      try {
+        payload = JSON.parse((await readBody(req)).toString('utf8')) || {}
+      } catch { /* no body: the default folder */ }
+      try {
+        const dir = await prepareRecordingDir(payload?.dir)
+        const opened = await openFolder(ctx, dir)
+        json(res, 200, { ok: true, dir, opened })
+      } catch (error) {
+        json(res, 500, { ok: false, reason: String(error && error.message || error) })
+      }
+    },
+  }), 'mixbox-palette: canvas folder route')
 
   /**
    * Relay the user's own message about the painting, with the canvas attached.
@@ -2157,32 +2318,19 @@ export function apply(ctx) {
         const bytes = Buffer.from(base64, 'base64')
         if (!bytes.length) return { text: 'The panel returned an empty recording.' }
         try {
-          // The panel's settings carry a recording folder; only an absolute path is
-          // honoured, and a broken one falls back to the harness default.
-          await mkdir(RECORD_DIR, { recursive: true })
-          let targetDir = RECORD_DIR
-          const wanted = typeof reply.recordDir === 'string' ? reply.recordDir.trim() : ''
-          if (wanted && isAbsolute(wanted)) {
-            try {
-              await mkdir(wanted, { recursive: true })
-              targetDir = wanted
-            } catch { /* keep the default */ }
-          }
-          const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-          const file = join(targetDir, `chubby-fish-${stamp}.webm`)
-          await writeFile(file, bytes)
-          const polished = await exportRecording(file, typeof reply.recordFormat === 'string' ? reply.recordFormat : 'both')
+          // The panel's settings carry a recording folder and an export format; the clip
+          // goes where the user's own ● button puts it.
+          const clip = await saveRecordingClip(bytes, reply.recordDir, reply.recordFormat)
           const seconds = Math.round((Number(reply.durationMs) || 0) / 1000)
           const frames = Number(reply.frames) || 0
           const lines = [
-            `Recording saved: ${file}`,
+            `Recording saved in ${clip.dir}:`,
+            ...clip.files.map((saved) => `- ${saved}`),
             `${Math.round(bytes.length / 1024)} KB, ${frames} frames, about ${seconds}s of painting.`,
           ]
-          if (polished.mp4) lines.push(`mp4 copy (plays anywhere, phones and editors included): ${polished.mp4}`)
-          if (polished.gif) lines.push(`gif (for READMEs and chat): ${polished.gif}`)
-          if (polished.needsFfmpeg) {
+          if (clip.needsFfmpeg) {
             lines.push('This export format needs ffmpeg, which is not on this host: the clip was kept as webm. Install ffmpeg, or pick the webm format in the panel settings.')
-          } else if (!polished.indexed) {
+          } else if (!clip.indexed) {
             lines.push('No ffmpeg on this host, so the webm carries no duration index: it plays, but editors may show an unknown length. Fix it with: ffmpeg -i in.webm -c copy out.webm')
           }
           return { text: lines.join('\n') }
