@@ -1,13 +1,13 @@
 # 🐟 肥鱼画室 · Chubby fish studio
 
 <p align="center">
-  <img src="docs/gallery/jellyfish.gif" alt="三只水母：AI 在这张画布上一笔一笔画出来，3 倍速" width="620">
+  <img src="docs/gallery/portrait-process.gif" alt="自画像：AI 在这张画布上一笔一笔画出来，4 倍速" width="620">
 </p>
 <p align="center">
-  <sub><b>上面这段不是生成的图</b>，是 <code>canvas_record</code> 录下来的作画过程——三只水母、水下背景和水草，一笔一笔落笔，录完抽掉 2/3 的帧，3 倍速，最后一帧定格 1 秒。</sub>
+  <sub><b>上面这段不是生成的图</b>，是 <code>canvas_record</code> 录下来的作画过程——蓝发鲸尾小女仆，从背景水洗一路画到右下角盖章，抽掉 3/4 的帧、4 倍速，最后一帧定格 1 秒。</sub>
 </p>
 
-*大肥鱼自画像。约 180 笔，画在这个画布上：深蓝到浅蓝的鲸尾小女仆，白蕾丝头巾、蓝蝴蝶结、鲸鱼鳍耳，白围裙上一枚小鲸鱼徽记。左下角是朱红印章。*
+*大肥鱼自画像（第二版）。画在这个画布上：深蓝到浅蓝的鲸尾小女仆，白蕾丝头饰配蓝蝴蝶结、鲸鱼鳍耳、水手领加宝石领结、白围裙上一枚小鲸鱼徽记，右下角一方朱红印章。*
 
 <table>
 <tr>
@@ -33,11 +33,11 @@
 </tr>
 </table>
 
-上面这些——开头那段水母 GIF 和这四张画——都是大肥鱼在画布里逐笔画的。右上那张是当时的对话截图——写"正在运行命令"的时候，就是 `canvas_draw` 在落笔。
+开头那段 GIF 是这幅自画像的作画过程；下面这四张画——自画像、竹林、风景、小花——也都是在同一张画布上逐笔画的。自画像旁边那张是当时的对话截图：写"正在运行命令"的时候，就是 `canvas_draw` 在落笔。
 
 **右侧栏里一张你和 AI 共用的画布**：真实的颜料混色、真实的湿画扩散。你画，它看得见；它画，你随时撤销。
 
-MIT · v0.9.2 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件
+MIT · v0.9.3 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件
 
 > 用下来有问题、想许愿新功能，或者想看看别人画了什么：[在 Discussions 的插件帖里聊](https://github.com/deepseek-ai/deepseek-harness/discussions/13604)。
 
@@ -334,7 +334,7 @@ A DeepSeek Harness plugin that gives the assistant you are talking to (known as
   a fraction and is clamped, knobs outside their range are pulled to the nearest bound, and
   the reply lists every correction — the call paints instead of failing, and says what it
   had to change.
-- **The agent paints on your canvas, itself.** The paintings above, and the jellyfish clip
+- **The agent paints on your canvas, itself.** The paintings above, and the portrait clip
   at the top, were made stroke by stroke through `canvas_draw` and `canvas_record`;
   `canvas_look` shows it the picture and `canvas_sample` reads exact pixels. Every agent
   stroke lands in your undo stack.
