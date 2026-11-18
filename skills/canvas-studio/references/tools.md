@@ -27,18 +27,15 @@
 
 `canvas_record`：`start` 在落笔前，`stop` 在画完时；片段落在面板设置里的录制目录并导出。配方见 `recording.md`。
 
-## 按需加载的四个
+## 按需取用
 
-`canvas_tools` 一次加载一组，加载后从下一步起可用：
+DSH 的绘画手册通过 `canvas-studio` Skill 阅读，以下三组工具通过 `canvas_tools` 加载后可在下一步使用。独立 MCP 直接列出工具，手册通过 `canvas_guide` 按章节读取。
 
-| 组 | 工具 | 内容 |
+| DSH 组 | 工具 | 内容 |
 |---|---|---|
-| `guide` | `canvas_guide` | 画法：构图、分层、光、收笔、何时重画（纯文字） |
-| `brushes` | `canvas_brushes` | 引擎自己画的笔刷样张 + 每支一行说明 |
-| `notes` | `canvas_notes` | 共用的画法笔记目录，按篇读 |
-| `sample` | `canvas_sample` | 读精确像素色值：`(x, y) → #RRGGBB` |
-
-**只有需要时才加载**：一次画新图，通常 `notes`（看前人的坑）和 `brushes`（确认笔刷手感）各一次就够；`sample` 只在验收关键颜色时用。
+| `brushes` | `canvas_brushes` | 笔刷样张和说明 |
+| `notes` | `canvas_notes` | 共享画法笔记，先看索引，再按篇读 |
+| `sample` | `canvas_sample` | 读取指定像素的准确色值 |
 
 ## 常见误用
 
