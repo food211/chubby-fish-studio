@@ -65,6 +65,7 @@ export function polygonFill(vertices, requestedSize) {
       add(ring[0])
     }
   }
-  visit(rings.length === 1 ? rings[0] : outline, false)
+  // The browser clips the pigment footprint. Trace the true contour first to reach sharp tips.
+  visit(outline, false)
   return { points, size }
 }

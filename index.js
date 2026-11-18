@@ -1805,6 +1805,11 @@ export function apply(ctx) {
                 from: { type: 'number', description: 'With ellipse: start angle in degrees (0 = right, clockwise); with to it makes an arc.' },
                 to: { type: 'number', description: 'With ellipse: end angle in degrees.' },
                 fill: { type: 'boolean', description: 'With path: close the outline and fill it in one stroke. Mix straight segments with q and c curves; optional final z. Example: 100,150 q 130,70 200,120 c 185,145 145,185 100,150.' },
+                outline: {
+                  type: 'object', additionalProperties: false, required: ['color', 'size'],
+                  properties: { color: {type:'string', pattern:'^#[0-9a-fA-F]{6}$'}, size: {type:'number', minimum:1, maximum:600} },
+                  description: 'With polygon or fill:true: add a round-pen outline on the exact same contour, including jitter. Size in canvas pixels.',
+                },
                 polygon: {
                   type: 'array',
                   description: 'Fill a polygon instead of sweeping: [[x, y], …], at least three vertices, units of points. One continuous stroke follows the outline and winds inward.',
@@ -1824,7 +1829,7 @@ export function apply(ctx) {
                 },
                 smooth: {
                   type: 'boolean',
-                  description: 'Round the points into a curve (default for three or more); false keeps a corner. Paths with q or c are left alone.',
+                  description: 'Round the points into a curve (default for open paths of three or more points); closed paths keep their corners by default. Paths with q or c are left alone.',
                 },
                 taper: {
                   type: 'string',
@@ -2001,6 +2006,7 @@ export function apply(ctx) {
           for (const token of text.trim().split(/[\s;]+/)) {
             if (!token) continue
             const lower = token.toLowerCase()
+            if (lower === 'z' && points.length) { points.push(points[0]); continue }
             if (lower === 'm' || lower === 'l') { mode = 'line'; pending = []; continue }
             if (lower === 'q') { mode = 'q'; pending = []; curved = true; continue }
             if (lower === 'c') { mode = 'c'; pending = []; curved = true; continue }
@@ -2231,6 +2237,11 @@ export function apply(ctx) {
         // Convert a single closed outline to pixel coordinates before sampling Béziers.
         // Straight segments and the joins between curves keep their authored corners.
         function filledPath(stroke) {
+          if (stroke?.outline !== undefined && (!(stroke.fill || Array.isArray(stroke.polygon)) ||
+              !/^#[0-9a-f]{6}$/i.test(stroke.outline?.color) || !Number.isFinite(stroke.outline?.size) ||
+              stroke.outline.size < 1 || stroke.outline.size > 600)) {
+            throw Error('Use outline with a filled shape, a #RRGGBB color and size 1–600.')
+          }
           if (!stroke?.fill) return stroke
           if (typeof stroke.path !== 'string' || stroke.points || stroke.polygon || stroke.ellipse) {
             throw Error('Use fill: true with one path string.')
@@ -2270,15 +2281,15 @@ export function apply(ctx) {
         if (strokes.some((stroke) => readStroke(stroke).asRatio) && (!canvasWidth || !canvasHeight)) {
           return { text: 'These strokes are given as fractions of the canvas, but the host does not know the canvas size yet, so the fractions cannot be turned into pixels. Call canvas_glance (or canvas_look) once, then send them again.' }
         }
-        /** Turn one stroke spec into one or more point arrays (including mirrored shapes). */
-        const plansFor = (stroke) => {
+        /** Build the pigment path and, for a fill, its pixel-space clipping contour. */
+        const planFor = (stroke) => {
           const polygon = readPolygon(stroke)
           const jitter = Math.max(0, Math.min(20, Number(stroke?.jitter) || 0))
           if (polygon) {
             const outline = jitter ? wobble([...polygon, polygon[0]], jitter, false) : polygon
             const fill = polygonFill(outline, Number(stroke.size) || Number(metaObject.brush?.size) || 40)
             stroke.size = fill.size
-            return fill.points.length ? [fill.points] : []
+            return { points: fill.points, clip: outline }
           }
           const { raw, curved, asRatio } = readStroke(stroke)
           let points = raw.map((point) => {
@@ -2296,11 +2307,12 @@ export function apply(ctx) {
           })
           // Loose points and generated shapes alike get rounded; a Bézier is already a curve,
           // so it needs no corner cutting, and a shape needs only one light pass.
-          const wantsSmoothing = stroke?.smooth === true || (stroke?.smooth === undefined && points.length >= 3)
+          const closed = points.length > 2 && points[0][0] === points.at(-1)[0] && points[0][1] === points.at(-1)[1]
+          const wantsSmoothing = stroke?.smooth === true || (stroke?.smooth === undefined && points.length >= 3 && !closed)
           if (wantsSmoothing) points = smoothPoints(points, curved ? 1 : 2)
           const taper = ['in', 'out', 'both'].includes(stroke?.taper) ? stroke.taper : undefined
           if (taper) points = applyTaper(points, taper)
-          return [wobble(points, jitter, !stroke.ellipse || Number.isFinite(stroke.from) || Number.isFinite(stroke.to))]
+          return { points: wobble(points, jitter, !stroke.ellipse || Number.isFinite(stroke.from) || Number.isFinite(stroke.to)) }
         }
         const BRUSH_TYPES = ['watercolor', 'dry', 'splatter', 'circle', 'soft', 'flat']
         const PRESSURE_CURVES = ['linear', 'soft', 'firm', 'ink']
@@ -2323,24 +2335,13 @@ export function apply(ctx) {
         const ops = strokes.flatMap((input) => {
           const stroke = { ...input }
           const mirrored = stroke?.mirror === 'x' || stroke?.mirror === 'y' || stroke?.mirror === true
-          const base = plansFor(stroke)
-          // Snapshot the base plans before adding reflections: iterating an array while
-          // appending to it never terminates, which is exactly how this crashed the host.
-          const plans = mirrored
-            ? [...base, ...base.map((plan) => {
-              const flip = stroke?.mirror === 'y'
-              return plan.map((point) => {
-                const copy = [flip ? point[0] : canvasWidth - point[0], flip ? canvasHeight - point[1] : point[1]]
-                if (point.length > 2) copy.push(point[2])
-                return copy
-              })
-            })]
-            : base
+          const { points, clip } = planFor(stroke)
+          if (!points.length) return []
           const taper = ['in', 'out', 'both'].includes(stroke?.taper) ? stroke.taper : undefined
-          return plans.map((points) => ({
+          const fillOp = {
             type: 'stroke',
             tool: stroke?.tool === 'smudge' ? 'smudge' : 'brush',
-            points,
+            points, clip,
             color: boundedColor(stroke?.color),
             size: boundedNumber(stroke?.size, 0.5, 600, 'size'),
             strength: boundedNumber(stroke?.strength, 1, 100, 'strength'),
@@ -2351,7 +2352,16 @@ export function apply(ctx) {
             brushType: boundedChoice(stroke?.brushType, BRUSH_TYPES, 'brushType'),
             drip: boundedChoice(stroke?.drip, ['auto', 'on', 'off'], 'drip'),
             dripAmount: boundedNumber(stroke?.dripAmount, 0, 2, 'dripAmount'),
-          }))
+          }
+          const ops = [fillOp]
+          if (clip && stroke.outline) {
+            ops.push({ type:'stroke', points:[...clip, clip[0]], color:stroke.outline.color,
+              size:stroke.outline.size, brushType:'circle', strength:100, wetness:0, drip:'off' })
+          }
+          if (!mirrored) return ops
+          const reflect = path => path.map(([x,y,...pressure]) => stroke.mirror === 'y'
+            ? [x,canvasHeight-y,...pressure] : [canvasWidth-x,y,...pressure])
+          return ops.concat(ops.map(op => ({ ...op, points:reflect(op.points), clip:op.clip && reflect(op.clip) })))
         })
         if (ops.length > 400) {
           return { text: `That expands to ${ops.length} strokes, which is more than this tool will send in one call. Split it into smaller shapes or fewer polygon vertices.` }

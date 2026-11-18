@@ -417,7 +417,9 @@ async function __mpxStroke(points, options) {
     // stroke, short enough that a user undo cannot arrive in the middle of one.
     let batch = 1;
     let sinceFrame = 0;
+    let releaseClip;
     try {
+        if (opts.clip) releaseClip = __mpxClipFill(livePainter.gl, opts.clip);
         beginStroke(mode, color, first.x, first.y, first.pressure);
         if (mode === 'smudge') {
             // The app's smudge walks the segment itself, stepping by its own spacing.
@@ -490,6 +492,8 @@ async function __mpxStroke(points, options) {
         try { if (typeof livePainter.setWetness === 'function') livePainter.setWetness(previousWetness / 100); } catch (_e) {}
         try { livePainter._mpxDripMode = previousDripMode; livePainter._mpxDripAmount = previousDripAmount; } catch (_e) {}
         return { ok: false, reason: 'stroke-failed', message: String(error && error.message || error) };
+    } finally {
+        if (releaseClip) releaseClip();
     }
     currentTool = previousTool;
     brushSize = previousSize;
