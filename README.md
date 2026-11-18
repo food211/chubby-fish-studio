@@ -1,7 +1,7 @@
 # 🐟 肥鱼画室 · Chubby fish studio
 
 <p align="center">
-  <img src="docs/gallery/portrait-process.gif" alt="自画像：AI 在这张画布上一笔一笔画出来，4 倍速" width="620">
+  <img src="docs/gallery/portrait-process.gif" alt="自画像：AI 在这张画布上一笔一笔画出来" width="620">
 </p>
 <p align="center">
   <sub><b>上面这段不是生成的图</b>，是插件自带的录制录下来的作画过程——蓝发鲸尾小女仆，从背景水洗一路画到右下角盖章。</sub>
@@ -17,11 +17,12 @@ MIT · v0.9.5 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 
 装好之后，你在 DSH 里对话的那个 AI——网友叫它 **大肥鱼**——多了一张和你共用的画布。下文里的"它"就是这个 agent。
 
-- **你画一笔，它看得见**：手动叫它看，或开实时让它自己看
-- **你说一句，它直接在你的画上落笔示范**（不是生成一张新图）
-- **不满意就撤销**：它落的每一笔都进你的撤销栈，和你的笔触没有区别
-- **它能读像素**：精确读到 `#94364F`，不是隔着缩略图猜
-- **能录制**：作画过程可以录成视频，最后一帧停住给你看成品
+- **它真的会画**：一笔一笔落笔，不是生成一张图。你能看着它把一张空白画布画成画
+- **你看得见它在画什么，也随时能叫停**：它落的每一笔都进你的撤销栈，和你的笔触没有区别
+- **它看得见你画的东西**：手动叫它看，或开实时让它一边画一边提意见；它能读到精确的像素颜色，不是隔着缩略图猜
+- **颜料像真的**：蓝叠黄会转绿，湿了会洇、会积水、会往下淌
+- **能录下来**：作画过程录成视频，发 README、发社交都行
+- **它记得手感**：上个对话里摸出来的经验，下个对话接着用
 
 ## 画作
 
@@ -64,10 +65,9 @@ MIT · v0.9.5 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
    ```
 3. 等它显示安装完成
 
-装好后，**左侧栏底部、⚙ 设置旁边**会出现 **🐟 肥鱼画室**，点它就在右侧栏打开画布。这个会话里的 agent 立刻能看、能画、能录，不用再配置；同时它会拿到一个随包的 `canvas-studio` 技能，画法、工具细节和踩过的坑都在里面，你也可以直接 `/canvas-studio` 调出来看。
+装好后，**左侧栏底部、⚙ 设置旁边**会出现 **🐟 肥鱼画室**，点它就在右侧栏打开画布。这个会话里的 agent 立刻能看、能画、能录，不用再配置。
 
-> 需要 DSH 0.2.x。插件由 Host（工具 + 桥接）和浏览器（面板）两半组成，两者版本必须一致。
-> 改源码的话，仓库就是上面那个地址，构建方式见文末。
+> 需要 DSH 0.2.x。
 
 ## 和它一起画
 
@@ -77,6 +77,7 @@ MIT · v0.9.5 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 - 「看看右下角那朵花」——它只放大那一块看，不付整张图的账
 - 「这块太闷了，示范一下」——它先看，再落一两笔；不满意就点面板上的撤销
 - 「帮我把这片天空改成傍晚」——它先取色确认现状，再叠色
+- 「画一只水母，录下来」——它会开录制，画完把视频给你
 - 「我在画竹林，你别动」——手动模式下它不会自己凑过来看
 
 **它会先看再画**：没看过这张画不会落笔，画面变了（你画了、撤了、清了）也会重新看一遍，所以不会对着过时的画瞎补。
@@ -86,9 +87,9 @@ MIT · v0.9.5 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 | 模式 | 什么时候看画 | 适合 |
 |---|---|---|
 | **手动**（默认） | 你点「让肥鱼看看」或叫它看时才看 | 想安静画 |
-| **实时** | 笔触先进收件箱，攒够**笔数 / 像素变化 / 冷却时间**才看一次；看的时候先要一张缩略图，要不要细看由它自己决定 | 想让它一边画一边提意见 |
+| **实时** | 它攒够几笔、画面变化够多、过了冷却时间才看一次；先要一张缩略图，要不要细看由它自己决定 | 想让它一边画一边提意见 |
 
-三个阈值都在 ⚙ 里改。不落笔就不打扰。
+阈值都在 ⚙ 里改。你不落笔，它就不打扰。
 
 ## 面板操作
 
@@ -102,11 +103,11 @@ MIT · v0.9.5 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 | 笔压 | 手写笔压感 |
 | 混色区 | 拖颜色进去手动调，滑条调混合强度 |
 | 保存按钮 | 存成 PNG |
-| 最左的 ● | 录制 / 停止，片段存进下面说的录制目录 |
-| ⚙ | 画布分辨率：滑条或数字输入，480–1000 逻辑宽（680×572 – 1417×1192 px）；录制保存目录、导出格式、打开文件夹 |
-| ↻ | 刷新面板（会先保存画面），或重载整个界面 |
-| 顶部 100% | 显示缩放，不影响画布分辨率 |
-| 右下角「手动 / 实时」 | 切换看画模式，点开时清空事件收件箱 |
+| 最左的 ● | 录制 / 停止 |
+| ⚙ | 画布分辨率；录制保存目录、导出格式、打开文件夹 |
+| ↻ | 刷新面板（会先保存画面） |
+| 顶部 100% | 显示缩放，不影响画布清晰度 |
+| 右下角「手动 / 实时」 | 切换看画模式 |
 | 画布上的虚线框 | 那是模型设的作画选区：范围内才落笔（你的笔也受限，虚线本身不会被保存或录制）；点「解除选区」恢复整张 |
 
 ## 六种笔刷 + 涂抹
@@ -118,12 +119,12 @@ MIT · v0.9.5 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 | 水彩 | 会洇的湿画：边缘积水会漂，约一半沉积，尺寸越大越淡；这是铺氛围、背景和柔体块的那支 |
 | 圆头实色 | 实色、不透明、边缘利落，任何尺寸都是满色 |
 | 柔边 | 实心 + 柔边，喷枪手感 |
-| 平头 | 浓度 100 是实色方块；调小尺寸、间距调到 1%、浓度 75–90 就变成铅笔线 |
+| 平头 | 浓度 100 是实色方块；调小尺寸、浓度降到 75–90 就变成铅笔线 |
 | 干笔 | 像干了的毛笔：笔毛分叉、飞白、粗糙，用得少 |
 | 喷溅 | 散点喷溅，没有实心 |
 | 涂抹（工具） | 把已经画上的颜色沿路径拖开 |
 
-宽度不一样，这点最容易估错：圆头、平头、柔边大约等于滑条上的 size，水彩、干笔、喷溅大约**两倍**。
+宽度不一样，这点最容易估错：圆头、平头、柔边大约等于滑条上的尺寸，水彩、干笔、喷溅大约**两倍**。
 
 两条不随设置改变的硬边界：**水彩笔的白色压深色永远是灰的**，刷多少遍都白不回来（把湿度降到 20 只会让它斑驳）；反过来圆头、平头、柔边也做不出湿画的水味。
 
@@ -133,46 +134,28 @@ MIT · v0.9.5 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 
 ## 水彩模拟
 
-颜料按 **Kubelka–Munk** 混，不是 RGB 叠色：蓝 + 黄在交叠处会转绿——画布上量过，黄 `#E8B84A` 上叠蓝 `#2A4FD0`，交界处读出 `#688E6F`；后一笔浓度足够高时会把前一笔盖住（同一处中心读出 `#396992`）。引擎用预先烘好的查找表，落笔时按"当前浓度 + 纸面已有颜色"实时解算。
+颜料按真实颜料的方式混，不是电脑的 RGB 叠色：蓝 + 黄在交叠处会转绿，后一笔够浓时会把前一笔盖住。
 
-- **浓度（1–100%）**：一笔能沉积多少颜料。拉满才出实色
-- **湿度（0–100%）**：100% 时边缘持续外渗、笔触互相吃色；20% 时边缘收得住
+- **浓度**：一笔能沉积多少颜料。拉满才出实色
+- **湿度**：高的时候边缘持续外渗、笔触互相吃色；低的时候边缘收得住
 - **湿边 / 滴水**：湿画会形成深色水痕，纸吸饱了会往下淌
 
-**"为什么画不深"通常是浓度和湿度的问题**，不是笔法。更多实测对照见 [docs/DETAIL.md](docs/DETAIL.md)。
+**"为什么画不深"通常是浓度和湿度的问题**，不是笔法。
 
 ## 录制
 
-状态栏最左的 **●** 开始 / 停止。停下之后片段不走浏览器下载，而是写进 ⚙ 里选的目录，并按你选的导出格式（webm / mp4 / gif）转好——**你自己录的和 agent 录的，落在同一个目录、同一套格式**。
+状态栏最左的 **●** 开始 / 停止。停下之后片段不是浏览器下载，而是**存进你选好的文件夹**，按你选的格式（webm / mp4 / gif）转好后就能直接发出去——你自己录的和 agent 录的落在同一个地方。
 
-- **⚙ → 打开文件夹**：资源管理器直接开到那个目录，还没录过也会先把目录建出来
-- 存完那下的提示条上也带 **打开文件夹**，点一下就进
-- 宿主联系不上（比如面板换了版本还没重载）才退回浏览器下载，那时提示会明说"已保存到下载文件夹"
-- 提示条只在亮着时可点，点画布会把它收走，不挡落笔
+- **⚙ → 打开文件夹**：资源管理器直接开到那个目录，还没录过也会先建出来
+- 存完那下的提示条上也带「打开文件夹」，点一下就进
+- mp4 / gif 需要本机装有 ffmpeg，没有就留 webm，不影响观看
+- 万一保存失败会退回浏览器下载，并明说存到了下载文件夹
 
-## 数据在哪
+## 隐私
 
-- **画布快照**：`<DSH_HOME>/canvas-state/<sessionId>.json`，每个会话一个文件、原地覆盖
-- **录制片段**：⚙ 里选的目录，默认 `<DSH_HOME>/canvas-recordings/`，文件名 `chubby-fish-<时间>.webm`（导出后还有同名 `.mp4` / `.gif`）
-- **面板偏好**：`<DSH_HOME>/canvas-settings.json`，跨重启保留
-- **画布记忆**：`<DSH_HOME>/canvas-notes/`，几篇 Markdown，**不同会话共用**——上个对话摸出来的手感，下个对话直接继承
-- **保留**：最多 16 个快照文件 / 30 天，单帧超 4 MB 不落盘
-- **不联网**：引擎、混色表、笔触全在本地跑
-
-## 模型那边
-
-给关心实现的人的几句：它会先看再画；参数和坐标越界会被**自动夹到最近的合法值**并在回复里说明，所以一次调用不会因为一个 `1.02` 白费。工具、坐标、笔触字段、录制配方、选区用法、踩过的坑都写在随包的 `canvas-studio` 技能里——`SKILL.md` 只是索引，长内容按篇按需读，不占每次请求的上下文。这里是给人看的文档，不重复那些细节。
-
-## 从源码构建
-
-`client.js` 是预构建产物，安装不需要构建。重新生成需要上游绘画应用的源码（本仓库不分发）：
-
-```bash
-node build/build-client.mjs --src <上游源码目录>
-# 或 MPX_SRC=<目录> node build/build-client.mjs
-```
-
-构建逐文件注入并施加受断言保护的补丁：上游文件结构一变就报错退出。
+- 引擎、混色、笔触全在你的机器上跑，**不联网**
+- 画布存在本机的 DSH 目录里，重启 DSH 也不会丢
+- 录制文件在你自己选的目录里
 
 ## 已知限制
 
@@ -193,19 +176,16 @@ MIT，见 [LICENSE](LICENSE)。上游应用与第三方图标的归属见 [docs/
 A DeepSeek Harness plugin that gives the assistant you are talking to (known as
 **大肥鱼 / the chubby fish**) a canvas you both share. Installing it is the whole setup.
 
-- **You paint, it sees.** Ask it to look, or turn on realtime and let it look while you paint.
-- **It paints on your canvas, itself** — one stroke at a time, never a generated image. Every
-  agent stroke lands in your undo stack.
-- **Real pigment mixing**: a Kubelka–Munk engine, watercolour with concentration, paper
-  wetness, wet edges and drips, six brushes and a smudge tool. Blue over yellow turns green
-  where they overlap, like real paint.
-- **It records the process**, and the clip lands in a folder you pick, converted to
-  webm / mp4 / gif.
-- **Nothing is silently wrong**: parameters and coordinates outside their range are clamped
-  to the nearest legal value and listed in the reply, so a call paints instead of failing.
-- **A skill, not a wall of prompt**: the craft, the tool detail, every stroke field, the
-  recording recipes and the known traps ship as a `canvas-studio` skill whose body is a short
-  index, read on demand.
+- **It really paints**: one stroke at a time, never a generated image — and every stroke lands
+  in your undo stack.
+- **You see what it is doing**, and it sees what you are painting. It can be asked to look,
+  or look while you paint in realtime, down to exact pixel colours.
+- **Real pigment behaviour**: blue over yellow turns green where they overlap, wet paint
+  bleeds, pools and drips, with six brushes and a smudge tool to work with.
+- **It records the process** into a folder you pick, converted to webm / mp4 / gif.
+- **It remembers**: painting notes carry over from one conversation to the next.
+
+The paintings above, and the clip at the top, were made on this canvas by the agent itself.
 
 Install from the **Plugins** page with `github:food211/chubby-fish-studio`, then click
-**🐟 肥鱼画室** at the foot of the left sidebar. MIT licensed.
+**🐟 肥鱼画室** at the foot of the left sidebar. DSH 0.2.x or newer. MIT licensed.
