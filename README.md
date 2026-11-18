@@ -37,7 +37,7 @@
 
 **右侧栏里一张你和 AI 共用的画布**：真实的颜料混色、真实的湿画扩散。你画，它看得见；它画，你随时撤销。
 
-MIT · v0.8.8 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件
+MIT · v0.8.9 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件
 
 > 用下来有问题、想许愿新功能，或者想看看别人画了什么：[在 Discussions 的插件帖里聊](https://github.com/deepseek-ai/deepseek-harness/discussions/13604)。
 
@@ -237,15 +237,27 @@ MIT · v0.8.8 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 | 笔压 | 手写笔压感 |
 | 混色区 | 拖颜色进去手动调，滑条调混合强度 |
 | 保存按钮 | 存成 PNG |
-| ⚙ | 画布分辨率：滑条或数字输入，480–1000 逻辑宽（680×572 – 1417×1192 px） |
+| 最左的 ● | 录制 / 停止，片段存进下面说的录制目录 |
+| ⚙ | 画布分辨率：滑条或数字输入，480–1000 逻辑宽（680×572 – 1417×1192 px）；录制保存目录、导出格式、打开文件夹 |
 | ↻ | 刷新面板（会先保存画面），或重载整个界面 |
 | 顶部 100% | 显示缩放，不影响画布分辨率 |
 | 右下角「手动 / 实时」 | 切换看画模式，点开时清空事件收件箱 |
 
+## 录制
+
+状态栏最左的 **●** 开始 / 停止。停下之后片段不走浏览器下载，而是上台给宿主，写进 ⚙ 里选的目录，并按你选的导出格式（webm / mp4 / gif）转好——**你自己录的和 agent 用 `canvas_record` 录的，落在同一个目录、同一套格式**。
+
+- **⚙ → 打开文件夹**：资源管理器直接开到那个目录，还没录过也会先把目录建出来
+- 存完那下的提示条上也带 **打开文件夹**，点一下就进
+- 宿主联系不上（比如面板换了版本还没重载）才退回浏览器下载，那时提示会明说“已保存到下载文件夹”
+- 提示条只在亮着时可点，点画布会把它收走，不挡落笔
+
 ## 数据在哪
 
 - **画布快照**：`<DSH_HOME>/canvas-state/<sessionId>.json`，每个会话一个文件、原地覆盖
-- **保留**：最多 16 个文件 / 30 天，单帧超 4 MB 不落盘
+- **录制片段**：⚙ 里选的目录，默认 `<DSH_HOME>/canvas-recordings/`，文件名 `chubby-fish-<时间>.webm`（导出后还有同名 `.mp4` / `.gif`）
+- **面板偏好**：`<DSH_HOME>/canvas-settings.json`，跨重启保留（DSH 每次重启端口都变，只存在 localStorage 的会丢）
+- **保留**：最多 16 个快照文件 / 30 天，单帧超 4 MB 不落盘
 - **跨重启**：DSH 重启后端口会变（localStorage 按 origin 隔离），插件把上一帧写回，画不会丢
 - **不联网**：引擎、混色表、笔触全在本地跑
 
@@ -294,8 +306,12 @@ A DeepSeek Harness plugin that gives the assistant you are talking to (known as
   stroke lands in your undo stack.
 - **Two tempos**: manual, or realtime where stroke events queue in an inbox and trigger a
   look only once the stroke count, pixel-change and cooldown thresholds are met.
+- **Recording is a file, not a download**: the ● button and `canvas_record` write into the
+  folder picked in the settings, converted to webm / mp4 / gif there, and the settings row
+  (plus the "saved" toast) opens that folder in Explorer or Finder.
 - **Survives restarts**: snapshots live in `<DSH_HOME>/canvas-state/` and are restored on
-  the next launch, even though the GUI port changes between runs.
+  the next launch, even though the GUI port changes between runs; panel preferences live in
+  `<DSH_HOME>/canvas-settings.json`.
 
 Install from the **Plugins** page with `github:food211/chubby-fish-studio`, then click
 **🐟 肥鱼画室** at the foot of the left sidebar. MIT licensed.

@@ -2268,7 +2268,7 @@ export function apply(ctx) {
 
     scope.tools.register({
       name: 'canvas_record',
-      description: 'Record the drawing process as a webm video, taken from the panel canvas stream rather than the undo stack (which keeps only ~50 frames and would replay a fragment). Start it before you paint, stop it when the painting is finished: the clip is written to <DSH_HOME>/canvas-recordings and the file path comes back. Frames are pulled only on ticks with real paint work and the encoder pauses while the picture is still, so idle time neither bloats the file nor the bitrate. The panel has to be open.',
+      description: 'Record the drawing process as a webm video, taken from the panel canvas stream rather than the undo stack (which keeps only ~50 frames and would replay a fragment). Start it before you paint, stop it when the painting is finished: the clip is written to the folder picked in the panel settings (the harness home canvas-recordings by default) and the file path comes back. Frames are pulled only on ticks with real paint work and the encoder pauses while the picture is still, so idle time neither bloats the file nor the bitrate. The panel has to be open.',
       parameters: {
         type: 'object',
         additionalProperties: false,
