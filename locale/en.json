@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "Chubby fish studio",
-    "description": "A canvas you share with the agent: it can see your painting, paint on it, and every stroke it makes is undoable.",
+    "description": "A painting canvas in the right sidebar that you share with the agent. Open it from 🐟 肥鱼画室 at the foot of the left sidebar. It sees your painting and paints on it one stroke at a time — every stroke it makes is undoable, and it has to look before it paints. Real pigment mixing, six brushes, a built-in recorder. One canvas per conversation: no layers and no eraser.",
     "detail": "docs/DETAIL.md"
   }
 }
