@@ -56,6 +56,22 @@ const SETTINGS_PATH = '/mpx/canvas/settings'
 const LAST_PATH = '/mpx/canvas/last'
 const DEBUG_PATH = '/mpx/canvas/debug'
 
+/**
+ * How far past 1 a fraction may slip before it stops looking like one.
+ *
+ * Every value inside 0-1 is unambiguously a fraction of the canvas; a single value a hair
+ * outside (1.02 to run a brush off the edge, -0.01 from a rounding slip) is still a
+ * fraction, not a canvas-wide pixel coordinate. Pixels on this canvas run to hundreds, so
+ * the band is wide enough to forgive an overshoot and narrow enough to keep every real
+ * pixel coordinate on the pixel side.
+ * @type {number}
+ */
+const RATIO_SLACK = 0.25
+/** Whether one number could have been meant as a fraction of the canvas. */
+const withinRatioBand = (value) => Number.isFinite(value) && Math.abs(value) <= 1 + RATIO_SLACK
+/** Clamp, but leave NaN alone so the caller's own validation can still see it. */
+const clampIntoRange = (value, low, high) => (Number.isFinite(value) ? Math.min(high, Math.max(low, value)) : value)
+
 import { createHash } from 'node:crypto'
 import { polygonFill } from './polygon-fill.js'
 import { spawn } from 'node:child_process'
@@ -173,7 +189,8 @@ const CANVAS_PROMPT = [
   'The user has a pigment-mixing painting canvas: the 肥鱼画室 panel in the right sidebar. You can see it and paint on it through the same pigment pipeline the user paints with.',
   'Look at three prices: `canvas_glance` (the whole canvas as a thumbnail — placement and big shapes), `canvas_zoom` (one rectangle in canvas fractions, enlarged — a detail for the price of the crop), `canvas_look` (full size plus brush, palette and colours — when colour or an exact edge matters, or before advising on the painting). `canvas_state` gives the same facts without a picture and is not a look.',
   'You cannot paint blind: `canvas_draw` refuses strokes until you have looked at the whole canvas this session, and again if the canvas has changed since that look (the user painted, undid, cleared, or the panel reloaded). After a refusal, look (a glance is enough), then draw — never retry it unchanged. Your own strokes and a confirmed clear let you continue painting directly.',
-  '`canvas_draw` paints strokes and also carries `smudge` plus the undo/redo/clear actions; every stroke lands in the user undo stack. Points are canvas pixels, or fractions of the canvas when every value is in 0-1. `size` is the half-width on the wash brushes (they spread about twice it) and about the full width on circle/flat/soft.',
+  '`canvas_draw` paints strokes and also carries `smudge` plus the undo/redo/clear actions; every stroke lands in the user undo stack. Points are canvas pixels, or fractions of the canvas when every value is in 0-1 (a value a little outside — up to 1.25 — still reads as a fraction and is pulled back onto the edge). `size` is the half-width on the wash brushes (they spread about twice it) and about the full width on circle/flat/soft.',
+  'Out-of-range values are never silently wrong and never waste the call: numbers outside their range (strength 1-100, wetness 0-100, size 0.5-600, spacing 1-100, dripAmount 0-2) and coordinates beyond the canvas are clamped to the nearest legal value, and the reply lists what was corrected. An unreadable colour or an unknown brush name is dropped, not guessed.',
   'Keep a call to a handful of strokes, about eight: a long or wide call that gets mangled costs the whole batch, while small calls lose only their own. A path can be the compact string "0.36,0.60 0.37,0.65", sturdier for long paths, and curves are curves — "… q cx,cy x,y" is one arc.',
   'canvas_mask can select a region for brush and smudge on the shared canvas. Its edge jitter is sampled once per selection; set jitter to 0 for precision.',
   'When painting an illustration, aim for a hand-drawn feel that suits the subject. Direction, pressure and the rhythm of repeated marks can do as much as a little contour jitter.',
@@ -1539,9 +1556,18 @@ export function apply(ctx) {
           if (!Array.isArray(vertices) || vertices.length<3 || vertices.length>48 || !vertices.every(p=>Array.isArray(p)&&p.length===2&&p.every(Number.isFinite))) return {text:'Expected 3–48 finite coordinate pairs.'}
           const {width,height} = entry.meta?.canvas || {}
           if (!width || !height) return {text:'Canvas dimensions unavailable.'}
-          const ratio = args.unit === 'ratio' || (!args.unit && vertices.every(p=>p.every(v=>v>=0&&v<=1)))
-          const pts = vertices.map(([x,y])=>ratio?[x*width,y*height]:[x,y])
-          if (pts.some(([x,y])=>x<0||x>width||y<0||y>height)) return {text:'Keep the selection vertices inside the canvas.'}
+          const ratio = args.unit === 'ratio' || (!args.unit && vertices.every(p=>p.every(withinRatioBand)))
+          // A vertex outside the canvas is pulled onto the edge instead of being an error:
+          // a selection that overshoots means "to the edge", which is what a clamped vertex
+          // already says.
+          let clamped = 0
+          const pts = vertices.map(([x,y])=>{
+            const px = ratio ? x*width : x
+            const py = ratio ? y*height : y
+            const bounded = [clampIntoRange(px,0,width), clampIntoRange(py,0,height)]
+            if (bounded[0]!==px || bounded[1]!==py) clamped += 1
+            return bounded
+          })
           const area = pts.reduce((sum,p,i)=>{const q=pts[(i+1)%pts.length];return sum+p[0]*q[1]-p[1]*q[0]},0)
           if (Math.abs(area)<1) return {text:'The selection must enclose an area.'}
           const amount = Math.max(0, Math.min(20, args.jitter ?? 1))
@@ -1552,7 +1578,8 @@ export function apply(ctx) {
         } else if (action !== 'clear') return {text:'Expected set, clear or status.'}
         const ok = await dispatchAndWait(sessionId,[{type:'mask',mask}])
         if (!ok || JSON.stringify(snapshots.get(sessionId)?.meta?.mask ?? null)!==JSON.stringify(mask)) return {text:'Selection change not confirmed; inspect canvas_mask status.'}
-        return {text: mask ? 'Selection active. Brush and smudge are clipped to the displayed boundary.' : 'Selection cleared.'}
+        const fixed = clamped ? ` ${clamped} vertex/vertices were outside the canvas and were pulled onto the edge.` : ''
+        return {text: (mask ? 'Selection active. Brush and smudge are clipped to the displayed boundary.' : 'Selection cleared.') + fixed}
       }
     })
 
@@ -1845,14 +1872,14 @@ export function apply(ctx) {
                 unit: {
                   type: 'string',
                   enum: ['pixels', 'ratio'],
-                  description: 'Force pixels or fractions; usually unnecessary, since values within 0-1 already read as fractions.',
+                  description: 'Force pixels or fractions; usually unnecessary, since values within 0-1 already read as fractions. A value a little outside the canvas (up to 1.25) still reads as a fraction and is pulled back onto the edge, so 1.02 is a safe way to run a stroke off the bottom.',
                 },
                 usePressure: { type: 'boolean', description: 'Use the per-point pressures even when the panel pen switch is off. Pressure narrows and pales together, so look at what it gives.' },
                 pressureCurve: { type: 'string', description: 'Pressure response: linear, soft, firm (holds width, tapers late) or ink (gives way early).' },
-                color: { type: 'string', description: 'Hex colour, e.g. #3355cc; defaults to the foreground colour.' },
-                size: { type: 'number', description: 'Canvas pixels. About twice this wide on the wash brushes, about this wide on circle/flat/soft; defaults to the brush size.' },
-                strength: { type: 'number', description: 'Pigment 1-100: 100 lays solid, 20 is a stain. Defaults to the panel slider.' },
-                wetness: { type: 'number', description: 'Edge bleed 0-100: 100 bleeds, 20 holds. Defaults to the panel slider.' },
+                color: { type: 'string', description: 'Hex colour, e.g. #3355cc; defaults to the foreground colour. An unreadable value is ignored.' },
+                size: { type: 'number', description: 'Canvas pixels, clamped to 0.5-600. About twice this wide on the wash brushes, about this wide on circle/flat/soft; defaults to the brush size.' },
+                strength: { type: 'number', description: 'Pigment 1-100, clamped: 100 lays solid, 20 is a stain. Defaults to the panel slider.' },
+                wetness: { type: 'number', description: 'Edge bleed 0-100, clamped: 100 bleeds, 20 holds. Defaults to the panel slider.' },
           drip: {
             type: 'string',
             enum: ['auto', 'on', 'off'],
@@ -1860,9 +1887,9 @@ export function apply(ctx) {
           },
           dripAmount: {
             type: 'number',
-            description: 'Drip density 0-2, default 1: 2 spawns drops twice as often and allows twice as many at once, 0 disables them for this stroke. Density only — it does not lengthen how far a drop runs: run length comes from the brush size (a larger brush falls harder) and from wetness, neither of which this knob touches.',
+            description: 'Drip density 0-2, clamped, default 1: 2 spawns drops twice as often and allows twice as many at once, 0 disables them for this stroke. Density only — it does not lengthen how far a drop runs: run length comes from the brush size (a larger brush falls harder) and from wetness, neither of which this knob touches.',
           },
-                spacing: { type: 'number', description: 'Stamp spacing 1-100 percent of the brush size; 1 with a small size is the pencil setting.' },
+                spacing: { type: 'number', description: 'Stamp spacing 1-100 percent of the brush size, clamped; 1 with a small size is the pencil setting.' },
                 brushType: { type: 'string', description: 'watercolor, dry, splatter, circle, soft or flat; defaults to the current brush. See canvas_brushes.' },
                 tool: { type: 'string', enum: ['brush', 'smudge'], description: 'brush paints (default); smudge moves existing pigment like a fingertip for blending colours or pulling streaks. A soft brush can paint a soft edge directly.' },
               },
@@ -1909,6 +1936,34 @@ export function apply(ctx) {
         const canvasMeta = metaObject.canvas && typeof metaObject.canvas === 'object' ? metaObject.canvas : {}
         const canvasWidth = Number(canvasMeta.width) || 0
         const canvasHeight = Number(canvasMeta.height) || 0
+
+        /**
+         * What had to be pulled back into range this call.
+         *
+         * A value that cannot be used as given has two honest answers: refuse the call, or
+         * take the nearest legal value and say so. Painting is the point, so it clamps — but
+         * silently clamping would teach the model nothing, hence this list in the reply.
+         */
+        const corrections = []
+        const corrected = (note) => { if (!corrections.includes(note)) corrections.push(note) }
+        let pulledPoints = 0
+
+        /**
+         * One bounded numeric field, clamped to its range.
+         * @param {unknown} value - what the caller sent.
+         * @param {number} min - inclusive low bound.
+         * @param {number} max - inclusive high bound.
+         * @param {string} name - field name, for the correction note.
+         * @returns {number | undefined} a value inside the range, or undefined when absent.
+         */
+        const boundedNumber = (value, min, max, name) => {
+          if (value === undefined || value === null || value === '') return undefined
+          const number = Number(value)
+          if (!Number.isFinite(number)) { corrected(`${name} was not a number`); return undefined }
+          if (number < min) { corrected(`${name} ${number} → ${min}`); return min }
+          if (number > max) { corrected(`${name} ${number} → ${max}`); return max }
+          return number
+        }
 
         /**
          * Sample one quadratic Bézier.
@@ -2065,9 +2120,18 @@ export function apply(ctx) {
           return out
         }
 
-        /** Every coordinate inside 0-1 reads as a fraction of the canvas. */
+        /** Every coordinate inside the band reads as a fraction of the canvas. */
         const looksLikeFractions = (points) => points.length > 0
-          && points.every((point) => Math.abs(Number(point?.[0])) <= 1 && Math.abs(Number(point?.[1])) <= 1)
+          && points.every((point) => withinRatioBand(Number(point?.[0])) && withinRatioBand(Number(point?.[1])))
+
+        /** Pull one coordinate onto the canvas instead of drawing it into nowhere. */
+        const clampToCanvas = (value, limit) => {
+          if (!Number.isFinite(value)) return value
+          if (!Number.isFinite(limit) || limit <= 0) return value
+          return Math.min(limit, Math.max(0, value))
+        }
+        /** Pressure outside 0-1 is clamped like any other bounded knob. */
+        const clampPressure = (value) => (Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 1)
 
         /**
          * Expand an ellipse spec into one spiral path that fills it.
@@ -2141,9 +2205,16 @@ export function apply(ctx) {
           const shape = Array.isArray(stroke?.ellipse) ? stroke.ellipse.map(Number) : undefined
           const declaredUnit = stroke?.unit === 'ratio' ? true : stroke?.unit === 'pixels' ? false : undefined
           if (shape && shape.length === 4 && shape.every((value) => Number.isFinite(value))) {
-            const asRatio = declaredUnit === undefined ? shape.every((value) => Math.abs(value) <= 1) : declaredUnit
-            const center = asRatio ? [shape[0] * canvasWidth, shape[1] * canvasHeight] : [shape[0], shape[1]]
-            const radii = asRatio ? [shape[2] * canvasWidth, shape[3] * canvasHeight] : [shape[2], shape[3]]
+            const asRatio = declaredUnit === undefined ? shape.every(withinRatioBand) : declaredUnit
+            const maxRadius = Math.max(canvasWidth || 0, canvasHeight || 0) || 0
+            let center = asRatio ? [shape[0] * canvasWidth, shape[1] * canvasHeight] : [shape[0], shape[1]]
+            let radii = asRatio ? [shape[2] * canvasWidth, shape[3] * canvasHeight] : [shape[2], shape[3]]
+            // A centre belongs somewhere on the canvas; a radius only has to be sane, since a
+            // shape larger than the canvas is clipped by the engine anyway.
+            const boundedCenter = [clampToCanvas(center[0], canvasWidth), clampToCanvas(center[1], canvasHeight)]
+            if (boundedCenter[0] !== center[0] || boundedCenter[1] !== center[1]) pulledPoints += 1
+            center = boundedCenter
+            radii = radii.map((value) => (maxRadius ? Math.min(maxRadius, Math.max(0, value)) : Math.max(0, value)))
             const from = Number(stroke?.from)
             const to = Number(stroke?.to)
             // `ring` (or an arc angle) means outline the ellipse instead of filling it.
@@ -2183,11 +2254,17 @@ export function apply(ctx) {
           if (!points.every((point) => Number.isFinite(point[0]) && Number.isFinite(point[1]))) return undefined
           const declared = stroke?.unit === 'ratio' ? true : stroke?.unit === 'pixels' ? false : undefined
           const asRatio = declared === undefined
-            ? points.every((point) => Math.abs(point[0]) <= 1 && Math.abs(point[1]) <= 1)
+            ? points.every((point) => withinRatioBand(point[0]) && withinRatioBand(point[1]))
             : declared
-          return asRatio
-            ? points.map((point) => [point[0] * canvasWidth, point[1] * canvasHeight])
-            : points
+          // The outline has to end up inside the canvas: a vertex a hair outside is a
+          // deliberate bleed or a slip, and either way it belongs on the edge.
+          return points.map((point) => {
+            const x = asRatio ? point[0] * canvasWidth : point[0]
+            const y = asRatio ? point[1] * canvasHeight : point[1]
+            const bounded = [clampToCanvas(x, canvasWidth), clampToCanvas(y, canvasHeight)]
+            if (bounded[0] !== x || bounded[1] !== y) pulledPoints += 1
+            return bounded
+          })
         }
         // Convert a single closed outline to pixel coordinates before sampling Béziers.
         // Straight segments and the joins between curves keep their authored corners.
@@ -2231,7 +2308,6 @@ export function apply(ctx) {
         if (strokes.some((stroke) => readStroke(stroke).asRatio) && (!canvasWidth || !canvasHeight)) {
           return { text: 'These strokes are given as fractions of the canvas, but the host does not know the canvas size yet, so the fractions cannot be turned into pixels. Call canvas_glance (or canvas_look) once, then send them again.' }
         }
-        let outOfBounds = 0
         /** Turn one stroke spec into one or more point arrays (including mirrored shapes). */
         const plansFor = (stroke) => {
           const polygon = readPolygon(stroke)
@@ -2243,20 +2319,19 @@ export function apply(ctx) {
             return fill.points.length ? [fill.points] : []
           }
           const { raw, curved, asRatio } = readStroke(stroke)
-          let clipped = false
           let points = raw.map((point) => {
             const x = Number(point?.[0])
             const y = Number(point?.[1])
-            if (asRatio) {
-              const converted = [x * canvasWidth, y * canvasHeight]
-              if (Array.isArray(point) && point.length > 2) converted.push(Number(point[2]))
-              return converted
-            }
             if (!Number.isFinite(x) || !Number.isFinite(y)) return point
-            if (x < 0 || y < 0 || (canvasWidth && x > canvasWidth) || (canvasHeight && y > canvasHeight)) clipped = true
-            return point
+            // One rule for both units: a coordinate outside the canvas is pulled back to the
+            // nearest edge rather than drawn where nobody can see it.
+            const px = asRatio ? x * canvasWidth : x
+            const py = asRatio ? y * canvasHeight : y
+            const bounded = [clampToCanvas(px, canvasWidth), clampToCanvas(py, canvasHeight)]
+            if (bounded[0] !== px || bounded[1] !== py) pulledPoints += 1
+            if (Array.isArray(point) && point.length > 2) bounded.push(clampPressure(Number(point[2])))
+            return bounded
           })
-          if (clipped) outOfBounds += 1
           // Loose points and generated shapes alike get rounded; a Bézier is already a curve,
           // so it needs no corner cutting, and a shape needs only one light pass.
           const wantsSmoothing = stroke?.smooth === true || (stroke?.smooth === undefined && points.length >= 3)
@@ -2264,6 +2339,24 @@ export function apply(ctx) {
           const taper = ['in', 'out', 'both'].includes(stroke?.taper) ? stroke.taper : undefined
           if (taper) points = applyTaper(points, taper)
           return [wobble(points, jitter, !stroke.ellipse || Number.isFinite(stroke.from) || Number.isFinite(stroke.to))]
+        }
+        const BRUSH_TYPES = ['watercolor', 'dry', 'splatter', 'circle', 'soft', 'flat']
+        const PRESSURE_CURVES = ['linear', 'soft', 'firm', 'ink']
+        /** A hex colour, or nothing: an unreadable colour would fall back silently otherwise. */
+        const boundedColor = (value) => {
+          if (value === undefined || value === null || value === '') return undefined
+          if (typeof value !== 'string') { corrected('the colour was not a string and was ignored'); return undefined }
+          const text = value.trim()
+          if (/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(text)) return text
+          corrected(`colour "${text}" is not a hex value and was ignored`)
+          return undefined
+        }
+        /** One name from a closed set, or nothing. */
+        const boundedChoice = (value, allowed, name) => {
+          if (value === undefined || value === null || value === '') return undefined
+          if (typeof value === 'string' && allowed.includes(value)) return value
+          corrected(`${name} "${String(value)}" is not one of ${allowed.join('/')} and was ignored`)
+          return undefined
         }
         const ops = strokes.flatMap((input) => {
           const stroke = { ...input }
@@ -2286,16 +2379,16 @@ export function apply(ctx) {
             type: 'stroke',
             tool: stroke?.tool === 'smudge' ? 'smudge' : 'brush',
             points,
-            color: stroke?.color,
-            size: stroke?.size,
-            strength: stroke?.strength,
-            wetness: stroke?.wetness,
-            spacing: stroke?.spacing,
+            color: boundedColor(stroke?.color),
+            size: boundedNumber(stroke?.size, 0.5, 600, 'size'),
+            strength: boundedNumber(stroke?.strength, 1, 100, 'strength'),
+            wetness: boundedNumber(stroke?.wetness, 0, 100, 'wetness'),
+            spacing: boundedNumber(stroke?.spacing, 1, 100, 'spacing'),
             usePressure: Boolean(taper) || Boolean(stroke?.usePressure) || points.some((point) => point.length > 2),
-            pressureCurve: stroke?.pressureCurve || (taper ? 'soft' : undefined),
-            brushType: stroke?.brushType,
-            drip: stroke?.drip,
-            dripAmount: stroke?.dripAmount,
+            pressureCurve: boundedChoice(stroke?.pressureCurve, PRESSURE_CURVES, 'pressureCurve') || (taper ? 'soft' : undefined),
+            brushType: boundedChoice(stroke?.brushType, BRUSH_TYPES, 'brushType'),
+            drip: boundedChoice(stroke?.drip, ['auto', 'on', 'off'], 'drip'),
+            dripAmount: boundedNumber(stroke?.dripAmount, 0, 2, 'dripAmount'),
           }))
         })
         if (ops.length > 400) {
@@ -2316,10 +2409,11 @@ export function apply(ctx) {
         const tail = acked
           ? 'The canvas is updated; canvas_glance shows the result cheaply if you need to check it.'
           : 'Still painting; call canvas_glance in a moment for the result.'
-        const bounds = outOfBounds
-          ? ` ${outOfBounds} of them had points outside the ${canvasWidth}x${canvasHeight} canvas, so part of the stroke landed off-canvas.`
-          : ''
-        return { text: `Applied ${parts.join(' and ')}. ${tail} The user can undo them.${bounds}` }
+        // Every clamp that happened along the way, including the ones counted while a
+        // polygon or a curve was still being expanded.
+        if (pulledPoints) corrected(`${pulledPoints} point(s) outside the canvas were pulled onto the edge`)
+        const fixed = corrections.length ? ` Corrected to a legal value: ${corrections.join('; ')}.` : ''
+        return { text: `Applied ${parts.join(' and ')}. ${tail} The user can undo them.${fixed}` }
       },
     })
 

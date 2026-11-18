@@ -37,7 +37,7 @@
 
 **右侧栏里一张你和 AI 共用的画布**：真实的颜料混色、真实的湿画扩散。你画，它看得见；它画，你随时撤销。
 
-MIT · v0.8.9 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件
+MIT · v0.9.0 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件
 
 > 用下来有问题、想许愿新功能，或者想看看别人画了什么：[在 Discussions 的插件帖里聊](https://github.com/deepseek-ai/deepseek-harness/discussions/13604)。
 
@@ -52,7 +52,7 @@ MIT · v0.8.9 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 
 ## 局部绘画
 
-用 `canvas_mask` 设置矩形或多边形选区，画笔和涂抹就在同一张画布的选区内生效。例如 `{"action":"set","rect":[0.2,0.2,0.7,0.8],"unit":"ratio","jitter":1}`。边缘抖动以画布像素计，选定时生成一次，默认 1，设为 0 可得到精确边缘。画室显示选区虚线，点击「解除选区」或调用 `{"action":"clear"}` 可恢复整张绘画。
+用 `canvas_mask` 设置矩形或多边形选区，画笔和涂抹就在同一张画布的选区内生效。例如 `{"action":"set","rect":[0.2,0.2,0.7,0.8],"unit":"ratio","jitter":1}`。边缘抖动以画布像素计，选定时生成一次，默认 1，设为 0 可得到精确边缘。顶点越界不会被拒绝，会被拉到画布边上。画室显示选区虚线，点击「解除选区」或调用 `{"action":"clear"}` 可恢复整张绘画。
 
 ## 安装
 
@@ -97,6 +97,8 @@ MIT · v0.8.9 · [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harn
 
 - **画布像素**（默认）：和 `canvas_look` 报的尺寸一致
 - **比例**：坐标全部落在 0–1 之间就自动按比例读，和 `canvas_zoom` 的 `from`/`to` 同一套——在缩略图上量到哪就写哪，不用换算。要强制时也可以写 `unit: "pixels"` / `"ratio"`
+
+**越界不报错，自动夹到最近的合法值。** 比例坐标哪怕写到 `1.02`（想越过底边一点再让画布裁掉）仍然按比例读，只是被拉回边上——不会因为一个越界值整条路径翻成像素、落在左上角看不见。同理 `strength 150` 会变成 `100`、`wetness 120` → `100`、`size 900` → `600`、`spacing 0` → `1`、`dripAmount 5` → `2`、压感 `2` → `1`；画不出的颜色和笔刷名会被丢掉而不是瞎猜。**改了什么会在工具回复里列出来**，不会悄悄吞掉。
 
 长路径还能写成一行字符串，比嵌套数组更难写坏：
 
@@ -305,6 +307,10 @@ A DeepSeek Harness plugin that gives the assistant you are talking to (known as
   canvas in that session, and refuses again if the picture changed since that look (the
   user painted, undid, cleared, or the panel reloaded) — so a stale picture can never be
   painted over by accident.
+- **Nothing is silently wrong**: a fraction that overshoots the edge (1.02) still reads as
+  a fraction and is clamped, knobs outside their range are pulled to the nearest bound, and
+  the reply lists every correction — the call paints instead of failing, and says what it
+  had to change.
 - **The agent paints on your canvas, itself.** The paintings above, and the jellyfish clip
   at the top, were made stroke by stroke through `canvas_draw` and `canvas_record`;
   `canvas_look` shows it the picture and `canvas_sample` reads exact pixels. Every agent
