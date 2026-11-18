@@ -146,6 +146,12 @@ let vendor = JS_ORDER.map((rel) => {
 
 vendor = replaceOnce(
   vendor,
+  "a.download = 'mixbox-palette.png';",
+  "a.download = 'CFS-' + Date.now() + '.png';",
+  'studio PNG download name',
+)
+vendor = replaceOnce(
+  vendor,
   'function _bindDebugShortcuts(painter) {',
   'function _bindDebugShortcuts(painter) {\n    return; // DSH: window.help/h getters are host pollution\n',
   'disable debug shortcuts',

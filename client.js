@@ -8381,7 +8381,7 @@ function bindEvents() {
             const dataURL = painter.toDataURL('image/png');
             const a = document.createElement('a');
             a.href = dataURL;
-            a.download = 'mixbox-palette.png';
+            a.download = 'CFS-' + Date.now() + '.png';
             a.click();
             track('save_canvas_png', {
                 canvas_w: mixCanvas.width,
